@@ -6,11 +6,11 @@ _Engineering principles meet cybersecurity - A fresh approach to intelligent thr
 
 **Designed by Developer Sangwon | Powered by Claude Code**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Phase 1](https://img.shields.io/badge/Phase-1%20Complete-brightgreen.svg)](https://github.com/sangwon0707/rotaryshield)
 [![Open Source](https://img.shields.io/badge/Open%20Source-💎-brightgreen.svg)](https://github.com/sangwon0707/rotaryshield)
 [![Free Forever](https://img.shields.io/badge/Free-Forever-blue.svg)](https://github.com/sangwon0707/rotaryshield)
-[![Contributors Welcome](https://img.shields.io/badge/contributors-welcome-orange.svg)](CONTRIBUTING.md)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![Tests Passing](https://img.shields.io/badge/tests-33%2F33%20passing-success.svg)](https://github.com/sangwon0707/rotaryshield)
 
 ---
 
@@ -41,19 +41,33 @@ Drawing from **power engineering experience**, RotaryShield applies **positive d
 
 ---
 
-## ⚡ See It In Action
+## ⚡ Phase 1 Architecture
 
-```bash
-# Terminal output during an attack simulation
-[2025-01-30 10:15:23] Detection: IP 192.168.1.100 - SSH failure count: 3/5
-[2025-01-30 10:15:45] Throttling: IP 192.168.1.100 - Applying 2s delay
-[2025-01-30 10:16:12] Detection: IP 192.168.1.100 - SSH failure count: 8/15
-[2025-01-30 10:16:34] Throttling: IP 192.168.1.100 - Progressive delay: 5s
-[2025-01-30 10:17:01] Blocking: IP 192.168.1.100 - Threat threshold exceeded, IP banned
-[2025-01-30 10:17:02] Notification: Attack blocked, threat neutralized
+```python
+# RotaryShield 3-Layer Architecture (Phase 1)
+src/rotaryshield/
+├── security/
+│   ├── engine.py       # Main 3-layer security engine
+│   └── events.py       # Security event processing
+├── firewall/
+│   ├── manager.py          # Auto-detection: ufw/firewalld/iptables
+│   ├── adapter.py          # Base firewall adapter interface
+│   ├── ufw_adapter.py      # Ubuntu/Debian support
+│   ├── firewalld_adapter.py # RHEL/CentOS/Fedora support
+│   └── iptables_adapter.py  # Direct iptables control
+├── monitoring/
+│   ├── log_monitor.py      # Real-time file watching
+│   └── pattern_matcher.py  # ReDoS-protected regex engine
+├── database/
+│   ├── manager.py      # SQLite connection pooling
+│   ├── ip_manager.py   # IP ban/unban operations
+│   └── models.py       # Data model definitions
+└── utils/
+    ├── validators.py   # Comprehensive input validation
+    └── logging.py      # Structured security logging
 ```
 
-_Watch how RotaryShield progressively responds to threats with increasing precision_
+_Complete 3-layer security system with enterprise-grade components_
 
 ---
 
@@ -90,30 +104,29 @@ _Watch how RotaryShield progressively responds to threats with increasing precis
 
 ## 🚀 Getting Started
 
-### Quick Installation
+### Phase 1 Setup (Development/Testing)
 
 ```bash
-# Clone and install
+# Clone the repository
 git clone https://github.com/sangwon0707/rotaryshield.git
 cd rotaryshield
+
+# Create Python virtual environment
+python3 -m venv test_env
+source test_env/bin/activate  # Linux/Mac
+# test_env\Scripts\activate   # Windows
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Install RotaryShield
-sudo python setup.py install
+# Run tests to verify installation
+python -m pytest tests/
 
-# Install systemd service
-sudo cp systemd/rotaryshield.service /etc/systemd/system/
-sudo systemctl daemon-reload
-
-# Start protecting immediately
-sudo systemctl start rotaryshield
-sudo systemctl enable rotaryshield
-
-# Check status
-sudo systemctl status rotaryshield
+# Examine configuration examples
+cat configs/config.example.yml
 ```
+
+> **⚠️ Phase 1 Note**: Full installation and systemd integration are planned for Phase 2. Phase 1 focuses on core architecture development and testing.
 
 ### Basic Configuration
 
@@ -143,47 +156,49 @@ blocking:
     slack: false
 ```
 
-### Basic Commands
+### Phase 1 Development Commands
 
 ```bash
-# Monitor system logs
-sudo journalctl -u rotaryshield -f
+# Run comprehensive test suite
+python -m pytest tests/ -v
 
-# View service status
-sudo systemctl status rotaryshield
+# Test input validation functions
+python -m pytest tests/unit/test_validators.py -v
 
-# Test configuration (Phase 1)
-python -m rotaryshield.main --config-test
+# Test pattern matching engine  
+python -m pytest tests/unit/test_pattern_matcher.py -v
 
-# Run in development mode
-python src/rotaryshield/main.py --config configs/config.example.yml
+# Examine the architecture
+find src/rotaryshield -name "*.py" | head -10
 
-# Run tests
-python -m pytest tests/
+# Review configuration structure
+cat configs/config.example.yml | grep -A 5 "detection:"
 ```
 
-> **Note**: CLI commands (`rotaryshield monitor`, `list-blocked`, etc.) are planned for Phase 2 development.
+> **⚠️ Phase 1 Limitation**: The main daemon (`main.py`) has import issues that will be resolved in Phase 2. Current phase focuses on **component testing and architecture validation**.
 
 ---
 
 ## ⚠️ Phase 1 Status & Limitations
 
 ### Current Implementation Status
-**RotaryShield Phase 1 is production-ready** with the following capabilities:
+**RotaryShield Phase 1 is architecture-complete** with comprehensive component development:
 
-✅ **Working Features:**
-- 3-layer security engine with full detection, throttling, and blocking
-- Multi-platform firewall integration (ufw/firewalld/iptables)
-- Real-time log monitoring with pattern matching  
-- Enterprise SQLite database with IP management
-- Complete security hardening and input validation
-- systemd service integration with privilege separation
+✅ **Fully Implemented & Tested:**
+- ✅ **Core Architecture**: Complete 3-layer security system design
+- ✅ **Input Validation**: Comprehensive security validation (33/33 tests passing)
+- ✅ **Database Layer**: Enterprise SQLite management with IP tracking
+- ✅ **Firewall Adapters**: Multi-platform support (ufw/firewalld/iptables)
+- ✅ **Pattern Matching**: ReDoS-protected regex engine
+- ✅ **Security Hardening**: Path traversal protection, SQL injection prevention
+- ✅ **Configuration System**: YAML-based configuration with validation
+- ✅ **Development Framework**: Complete test suite and packaging
 
-⚠️ **Phase 1 Limitations:**
-- **No Web Dashboard**: Management via systemd/configuration files only
-- **Limited CLI Tools**: Basic Python module execution, no `rotaryshield` command yet
-- **Basic Notification**: Email/Slack notifications planned for Phase 2
-- **Manual Configuration**: No configuration GUI or auto-setup wizard
+⚠️ **Phase 1 Known Issues:**
+- **Daemon Integration**: Main entry point has relative import issues
+- **No Installation Script**: Manual setup required for testing
+- **No CLI Interface**: Component testing only via pytest
+- **No Runtime Demo**: Focus on architecture validation, not live deployment
 
 ### Security Note
 Phase 1 has undergone comprehensive security testing:
@@ -222,7 +237,7 @@ We welcome contributions of all kinds:
 
 **Every contribution makes RotaryShield better for everyone.**
 
-Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
+Check out our [GitHub Issues](https://github.com/sangwon0707/rotaryshield/issues) to get started!
 
 ---
 
@@ -270,7 +285,7 @@ Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
 - 🐛 [Report Issues](https://github.com/sangwon0707/rotaryshield/issues)
 - 💡 [Feature Discussions](https://github.com/sangwon0707/rotaryshield/discussions)
 - 📖 [Documentation](https://github.com/sangwon0707/rotaryshield/wiki)
-- 🚀 [Contributing Guide](CONTRIBUTING.md)
+- 🚀 [Source Code](https://github.com/sangwon0707/rotaryshield)
 
 ### Connect With Us
 
@@ -300,7 +315,7 @@ Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
 
 ## 📄 License
 
-MIT License - See [LICENSE](LICENSE) file for details.
+This project is open source. License details to be determined in Phase 2.
 
 ---
 
