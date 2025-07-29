@@ -1,0 +1,121 @@
+# RotaryShield systemd service unit file
+# 3-layer security system with detection, throttling, and blocking
+#
+# Installation:
+# 1. Copy this file to /etc/systemd/system/rotaryshield.service
+# 2. Run: sudo systemctl daemon-reload
+# 3. Run: sudo systemctl enable rotaryshield
+# 4. Run: sudo systemctl start rotaryshield
+#
+# Security Features:
+# - Runs with minimal privileges
+# - Isolated service environment
+# - Automatic restart on failure
+# - Resource limits applied
+# - Secure service hardening
+
+[Unit]
+Description=RotaryShield 3-Layer Security System
+Documentation=https://github.com/your-org/rotaryshield
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/rotaryshield
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/python3 -m rotaryshield.main --daemon
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -TERM $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStartSec=60
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+RestartPreventExitStatus=64
+
+# User and Group
+User=rotaryshield
+Group=rotaryshield
+
+# Working Directory and Environment
+WorkingDirectory=/var/lib/rotaryshield
+Environment=PYTHONPATH=/usr/lib/python3/dist-packages:/usr/local/lib/python3/dist-packages
+Environment=ROTARYSHIELD_CONFIG=/etc/rotaryshield/config.yml
+Environment=ROTARYSHIELD_LOG_LEVEL=INFO
+
+# Security Hardening
+# Prevent access to other users' processes
+PrivateUsers=false
+# Restrict access to system calls
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Prevent writing to most of the filesystem
+ProtectSystem=strict
+# Allow writing to specific directories
+ReadWritePaths=/var/lib/rotaryshield /var/log/rotaryshield /run/rotaryshield
+# Prevent access to home directories
+ProtectHome=true
+# Prevent access to kernel variables
+ProtectKernelTunables=true
+# Prevent access to kernel modules
+ProtectKernelModules=true
+# Prevent access to kernel logs
+ProtectKernelLogs=true
+# Prevent access to hardware devices
+PrivateDevices=true
+# Restrict access to /tmp
+PrivateTmp=true
+# Prevent new privileges
+NoNewPrivileges=true
+# Restrict network namespaces
+PrivateNetwork=false
+# Remove access to other user sessions
+PrivateIPC=true
+# Restrict filesystem namespaces
+ProtectProc=invisible
+ProcSubset=pid
+# Restrict access to control groups
+ProtectControlGroups=true
+# Prevent access to hostname
+ProtectHostname=true
+# Prevent access to clock
+ProtectClock=true
+# Lock down personality
+LockPersonality=true
+# Restrict address families (allow IPv4, IPv6, Unix sockets)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+# Prevent realtime scheduling
+RestrictRealtime=true
+# Remove SUID/SGID bits
+RemoveIPC=true
+
+# Resource Limits
+# Memory limit (64MB should be sufficient)
+MemoryMax=64M
+MemoryHigh=48M
+# CPU limit (allow bursts but limit sustained usage)
+CPUQuota=200%
+# Task limit
+TasksMax=50
+# File descriptor limit
+LimitNOFILE=1024
+# Core dump size
+LimitCORE=0
+# Maximum file size
+LimitFSIZE=100M
+
+# Capabilities
+# Only grant necessary capabilities for firewall management
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+# Additional Security
+# Prevent access to supplementary groups
+SupplementaryGroups=
+# Set umask to restrictive value
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
+Alias=rotaryshield

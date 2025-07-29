@@ -1,0 +1,165 @@
+# RotaryShield Configuration File
+# 3-Layer Security System Configuration
+#
+# This file defines the behavior of RotaryShield's three security layers:
+# Layer 1: Detection (Log monitoring and pattern matching)
+# Layer 2: Throttling (Progressive response delays and rate limiting)
+# Layer 3: Blocking (IP banning and honeypot redirection)
+#
+# Security Note: This file may contain sensitive information.
+# Set permissions to 600 (readable only by owner)
+
+# Detection Layer Configuration
+detection:
+  # Maximum retry attempts before escalation
+  max_retry: 5
+  
+  # Number of failures that trigger automatic ban
+  ban_threshold: 10
+  
+  # Time window for counting failures (seconds)
+  time_window: 600  # 10 minutes
+  
+  # Log files to monitor
+  log_files:
+    - /var/log/auth.log          # SSH authentication logs
+    - /var/log/secure            # Alternative auth log (RHEL/CentOS)
+    - /var/log/nginx/access.log  # Nginx web server logs
+    - /var/log/apache2/access.log # Apache web server logs
+    - /var/log/httpd/access_log  # Alternative Apache logs
+    - /var/log/vsftpd.log        # FTP server logs
+  
+  # Pattern definitions for threat detection
+  patterns:
+    # SSH-related patterns
+    ssh_failed_password: "Failed password for .+ from (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    ssh_invalid_user: "Invalid user .+ from (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    ssh_connection_closed: "Connection closed by (\\d+\\.\\d+\\.\\d+\\.\\d+) port \\d+ \\[preauth\\]"
+    ssh_max_auth_tries: "Maximum authentication attempts exceeded for .+ from (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    
+    # HTTP-related patterns
+    http_brute_force: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \"POST .*/login.*\" 40[13]"
+    http_scan_attempts: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \"GET .*/\\..*\" 40[34]"
+    http_admin_access: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \"GET .*/admin.*\" 40[13]"
+    http_sql_injection: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \".*(?:SELECT|UNION|INSERT|UPDATE|DELETE).*\" 40[03]"
+    
+    # FTP-related patterns
+    ftp_failed_login: "FAIL LOGIN: Client \"(\\d+\\.\\d+\\.\\d+\\.\\d+)\""
+    ftp_connection_refused: "Connection refused: (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    
+    # General security patterns
+    port_scan_detection: "kernel: .* SRC=(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    ddos_detection: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* - - .*HTTP/1\\.[01]\" 200"
+
+# Throttling Layer Configuration
+throttling:
+  # SSH connection delay (seconds)
+  ssh_delay: 2.0
+  
+  # HTTP rate limiting (requests per minute)
+  http_rate_limit: 10
+  
+  # HTTP rate limiting window (seconds)
+  http_rate_window: 60
+  
+  # Maximum concurrent connections per IP
+  max_connections: 20
+  
+  # Enable progressive delays (increases delay for repeat offenders)
+  progressive: true
+  
+  # Enable CAPTCHA challenges for web traffic
+  enable_captcha: false
+
+# Blocking Layer Configuration
+blocking:
+  # Default ban duration (seconds)
+  ban_time: 3600  # 1 hour
+  
+  # Maximum ban duration (seconds)
+  max_ban_time: 86400  # 24 hours
+  
+  # Ban time escalation factor for repeat offenders
+  escalation_factor: 2.0
+  
+  # Firewall backend to use ('auto', 'ufw', 'firewalld', 'iptables')
+  firewall: "auto"
+  
+  # Enable honeypot redirection instead of dropping connections
+  enable_honeypot: false
+  
+  # Honeypot service port
+  honeypot_port: 2222
+  
+  # IP addresses to never ban (whitelist)
+  whitelist_ips:
+    - "127.0.0.1"         # Localhost IPv4
+    - "::1"               # Localhost IPv6
+    - "192.168.1.0/24"    # Local network (adjust as needed)
+    - "10.0.0.0/8"        # Private network (adjust as needed)
+  
+  # Enable notifications for bans
+  notification: true
+
+# Database Configuration
+database:
+  # SQLite database path
+  db_path: "/var/lib/rotaryshield/rotaryshield.db"
+  
+  # Enable automatic database backups
+  backup_enabled: true
+  
+  # Backup interval (seconds)
+  backup_interval: 3600  # 1 hour
+  
+  # Maximum number of backup files to keep
+  max_backup_files: 10
+  
+  # Database vacuum interval (seconds)
+  vacuum_interval: 86400  # 24 hours
+
+# Notification Configuration
+notification:
+  # Email notifications
+  email_enabled: false
+  email_smtp_server: "smtp.example.com"
+  email_smtp_port: 587
+  email_username: "rotaryshield@example.com"
+  email_password: "your_email_password"  # Use environment variable in production
+  email_recipients:
+    - "admin@example.com"
+    - "security@example.com"
+  email_use_tls: true
+  
+  # Slack notifications
+  slack_enabled: false
+  slack_webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+
+# Global Settings
+log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_file: "/var/log/rotaryshield/rotaryshield.log"
+pid_file: "/var/run/rotaryshield/rotaryshield.pid"
+daemon_mode: true
+user: "rotaryshield"
+group: "rotaryshield"
+
+# Advanced Configuration (optional)
+advanced:
+  # Performance tuning
+  max_memory_mb: 50
+  max_cpu_percent: 5
+  worker_threads: 4
+  
+  # Security hardening
+  enable_integrity_checks: true
+  log_injection_prevention: true
+  rate_limit_config_changes: true
+  
+  # Monitoring integration
+  prometheus_enabled: false
+  prometheus_port: 9090
+  
+  # Development/testing options
+  debug_mode: false
+  test_mode: false
+  simulate_attacks: false

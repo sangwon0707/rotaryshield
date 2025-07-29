@@ -1,0 +1,47 @@
+# RotaryShield Development Requirements
+# Dependencies for development, testing, and security analysis
+
+# Include production requirements
+-r requirements.txt
+
+# Testing Framework
+pytest>=7.0.0,<8.0        # Modern testing framework
+pytest-cov>=4.0.0,<5.0    # Coverage reporting
+pytest-mock>=3.10.0,<4.0  # Mocking utilities
+pytest-timeout>=2.1.0,<3.0 # Test timeouts
+pytest-xdist>=3.0.0,<4.0  # Parallel test execution
+
+# Code Quality and Linting
+flake8>=6.0.0,<7.0        # Code style checker
+black>=23.0.0,<24.0       # Code formatter
+isort>=5.12.0,<6.0        # Import sorter
+mypy>=1.0.0,<2.0          # Static type checker
+pylint>=2.17.0,<3.0       # Advanced linting
+
+# Security Analysis
+bandit>=1.7.5,<2.0        # Security vulnerability scanner
+safety>=2.3.0,<3.0        # Dependency vulnerability checker
+semgrep>=1.0.0,<2.0       # Static analysis security scanner
+
+# Documentation
+sphinx>=6.0.0,<7.0        # Documentation generator
+sphinx-rtd-theme>=1.2.0,<2.0  # Read the Docs theme
+
+# Performance Analysis
+memory-profiler>=0.60.0,<1.0  # Memory usage profiling
+py-spy>=0.3.0,<1.0        # Sampling profiler
+
+# Development Utilities
+ipython>=8.0.0,<9.0       # Enhanced Python shell
+pre-commit>=3.0.0,<4.0    # Git pre-commit hooks
+tox>=4.0.0,<5.0           # Testing in multiple environments
+
+# Network Testing Utilities
+scapy>=2.5.0,<3.0         # Packet manipulation (for advanced testing)
+
+# Optional: Advanced testing tools
+hypothesis>=6.70.0,<7.0   # Property-based testing
+factory-boy>=3.2.0,<4.0   # Test data generation
+
+# Development Environment
+python-dotenv>=1.0.0,<2.0 # Environment variable management

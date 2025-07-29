@@ -1,0 +1,37 @@
+# RotaryShield Requirements
+# Production-ready dependencies with security focus
+
+# Core Dependencies
+PyYAML>=6.0,<7.0          # Configuration file parsing
+psutil>=5.9.0,<6.0        # System and process monitoring
+watchdog>=3.0.0,<4.0      # File system event monitoring (alternative to manual polling)
+
+# Database
+# SQLite is included with Python, no additional dependency needed
+
+# Networking and IP handling
+# ipaddress is included with Python 3.3+
+
+# Logging and monitoring
+# logging is included with Python
+
+# Optional dependencies for enhanced functionality
+# systemd-python>=235      # Systemd integration (Linux only)
+# python-prctl>=1.8.0      # Process control (Linux only)
+
+# Development Dependencies (install with: pip install -r requirements-dev.txt)
+# These are kept separate to minimize production footprint
+
+# Security note: All versions are pinned to major.minor to prevent
+# automatic updates that could introduce vulnerabilities or breaking changes.
+# Review and update these versions regularly through security audits.
+
+# Platform-specific dependencies
+# Linux distributions may have these packages available through system package managers:
+# - Debian/Ubuntu: python3-yaml python3-psutil python3-watchdog
+# - RHEL/CentOS: python3-PyYAML python3-psutil python3-watchdog
+# - Alpine: py3-yaml py3-psutil py3-watchdog
+
+# For production deployment, consider using:
+# pip install --no-deps -r requirements.txt
+# to prevent dependency resolution conflicts
