@@ -291,7 +291,7 @@ Check out our [GitHub Issues](https://github.com/sangwon0707/rotaryshield/issues
 
 - 💬 [Discord Community](https://discord.gg/rotaryshield) _(coming soon)_
 - 🐦 [Twitter Updates](https://twitter.com/rotaryshield) _(coming soon)_
-- 📧 Email: community@rotaryshield.org _(coming soon)_
+- 📧 Email: sangwon07@gmail.com
 
 **⭐ Star this repository if RotaryShield helps secure your servers!**
 
