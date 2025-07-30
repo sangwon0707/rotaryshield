@@ -295,6 +295,7 @@ terraform/*.tfstate.backup
 .claude/
 .serena/
 phase1-summary.md
+phase2todo.md
 rotaryshield_development_plan.md
 
 # =============================================
