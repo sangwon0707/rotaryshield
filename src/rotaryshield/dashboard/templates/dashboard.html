@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="RotaryShield - Real-time Security Dashboard">
+    <title>RotaryShield Dashboard - Enterprise Security Monitoring</title>
+    
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    
+    <!-- Socket.IO for real-time updates -->
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="dashboard-header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-shield-alt"></i>
+                    <h1>RotaryShield</h1>
+                    <span class="subtitle">Enterprise Security Dashboard</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot active" id="status-dot"></div>
+                    <span id="status-text">System Active</span>
+                    <div class="last-update">
+                        Last Updated: <span id="last-update">--:--:--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard-main">
+        <div class="container">
+            
+            <!-- Statistics Cards -->
+            <section class="stats-section">
+                <div class="stats-grid">
+                    <div class="stat-card critical">
+                        <div class="stat-icon">
+                            <i class="fas fa-ban"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-number" id="active-bans">--</div>
+                            <div class="stat-label">Active Bans</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card warning">
+                        <div class="stat-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-number" id="events-24h">--</div>
+                            <div class="stat-label">Events (24h)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card info">
+                        <div class="stat-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-number" id="events-1h">--</div>
+                            <div class="stat-label">Events (1h)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card success">
+                        <div class="stat-icon">
+                            <i class="fas fa-database"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-number" id="total-bans">--</div>
+                            <div class="stat-label">Total Bans</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Section -->
+            <section class="charts-section">
+                <div class="charts-grid">
+                    
+                    <!-- Attack Timeline -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-line"></i> Attack Timeline (24h)</h3>
+                        </div>
+                        <div class="chart-content">
+                            <canvas id="timeline-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Attack Types -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-pie"></i> Attack Types</h3>
+                        </div>
+                        <div class="chart-content">
+                            <canvas id="attack-types-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Top Attackers -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3><i class="fas fa-user-ninja"></i> Top Attackers</h3>
+                        </div>
+                        <div class="chart-content">
+                            <canvas id="top-attackers-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- System Performance -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3><i class="fas fa-tachometer-alt"></i> Pattern Matching Performance</h3>
+                        </div>
+                        <div class="chart-content">
+                            <div class="performance-metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Total Patterns:</span>
+                                    <span class="metric-value" id="total-patterns">--</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Total Matches:</span>
+                                    <span class="metric-value" id="total-matches">--</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Avg Match Time:</span>
+                                    <span class="metric-value" id="avg-match-time">-- ms</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Data Tables Section -->
+            <section class="tables-section">
+                <div class="tables-grid">
+                    
+                    <!-- Blocked IPs Table -->
+                    <div class="table-container">
+                        <div class="table-header">
+                            <h3><i class="fas fa-list"></i> Recently Blocked IPs</h3>
+                            <button class="refresh-btn" onclick="loadBlockedIPs()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                        <div class="table-content">
+                            <div class="table-wrapper">
+                                <table id="blocked-ips-table">
+                                    <thead>
+                                        <tr>
+                                            <th>IP Address</th>
+                                            <th>Reason</th>
+                                            <th>Attempts</th>
+                                            <th>Ban Time</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="blocked-ips-tbody">
+                                        <tr>
+                                            <td colspan="5" class="loading">Loading blocked IPs...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Events Table -->
+                    <div class="table-container">
+                        <div class="table-header">
+                            <h3><i class="fas fa-history"></i> Recent Security Events</h3>
+                            <button class="refresh-btn" onclick="loadRecentEvents()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                        <div class="table-content">
+                            <div class="table-wrapper">
+                                <table id="recent-events-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Type</th>
+                                            <th>IP Address</th>
+                                            <th>Severity</th>
+                                            <th>Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-events-tbody">
+                                        <tr>
+                                            <td colspan="5" class="loading">Loading recent events...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="dashboard-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-left">
+                    <p>&copy; 2025 RotaryShield - Enterprise Security Protection</p>
+                    <p>Phase 2 Complete - Production Ready</p>
+                </div>
+                <div class="footer-right">
+                    <p>Real-time Dashboard | WebSocket Connected</p>
+                    <div class="connection-status">
+                        <div class="connection-dot" id="connection-dot"></div>
+                        <span id="connection-status">Connecting...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    
+    <script>
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDashboard();
+        });
+        
+        // Handle page visibility for performance
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                pauseUpdates();
+            } else {
+                resumeUpdates();
+            }
+        });
+    </script>
+</body>
+</html>
