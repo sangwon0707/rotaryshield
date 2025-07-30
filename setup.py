@@ -98,6 +98,7 @@ setup(
             "rotaryshield=rotaryshield.main:main",
             "rotaryshield-config=rotaryshield.cli:config_main",
             "rotaryshield-status=rotaryshield.cli:status_main",
+            "rotaryshield-control=rotaryshield.cli:control_main",
         ],
     },
     

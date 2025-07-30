@@ -1,0 +1,96 @@
+# RotaryShield Testing Configuration
+# Modified for development and testing environment
+
+# Detection Layer Configuration
+detection:
+  max_retry: 3            # Lower threshold for testing
+  ban_threshold: 5        # Lower threshold for testing
+  time_window: 60         # 1 minute for testing
+  
+  # Test log files (we'll create these)
+  log_files:
+    - "/Users/sangwon/Project/Project_personal/RotaryShield/test_logs/auth.log"
+    - "/Users/sangwon/Project/Project_personal/RotaryShield/test_logs/nginx_access.log"
+    - "/Users/sangwon/Project/Project_personal/RotaryShield/test_logs/apache_access.log"
+  
+  # Pattern definitions for threat detection
+  patterns:
+    # SSH-related patterns
+    ssh_failed_password: "Failed password for .+ from (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    ssh_invalid_user: "Invalid user .+ from (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    ssh_connection_closed: "Connection closed by (\\d+\\.\\d+\\.\\d+\\.\\d+) port \\d+ \\[preauth\\]"
+    ssh_max_auth_tries: "Maximum authentication attempts exceeded for .+ from (\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    
+    # HTTP-related patterns
+    http_brute_force: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \"POST .*/login.*\" 40[13]"
+    http_scan_attempts: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \"GET .*/\\..*\" 40[34]"
+    http_admin_access: "(\\d+\\.\\d+\\.\\d+\\.\\d+) .* \"GET .*/admin.*\" 40[13]"
+    
+    # FTP-related patterns
+    ftp_failed_login: "FAIL LOGIN: Client \"(\\d+\\.\\d+\\.\\d+\\.\\d+)\""
+
+# Throttling Layer Configuration
+throttling:
+  ssh_delay: 1.0          # Reduced for testing
+  http_rate_limit: 5      # Reduced for testing
+  http_rate_window: 30    # Reduced for testing
+  max_connections: 10     # Reduced for testing
+  progressive: true
+  enable_captcha: false
+
+# Blocking Layer Configuration
+blocking:
+  ban_time: 300           # 5 minutes for testing
+  max_ban_time: 1800      # 30 minutes for testing
+  escalation_factor: 2.0
+  firewall: "auto"        # Let it auto-detect
+  enable_honeypot: false
+  honeypot_port: 2222
+  
+  # IP addresses to never ban (whitelist)
+  whitelist_ips:
+    - "127.0.0.1"         # Localhost IPv4
+    - "::1"               # Localhost IPv6
+    - "192.168.1.0/24"    # Local network
+    - "10.0.0.0/8"        # Private network
+  
+  notification: false     # Disable for testing
+
+# Database Configuration (use local test database)
+database:
+  db_path: "/Users/sangwon/Project/Project_personal/RotaryShield/test_data/rotaryshield_test.db"
+  backup_enabled: false   # Disable for testing
+  backup_interval: 3600
+  max_backup_files: 3
+  vacuum_interval: 86400
+
+# Notification Configuration (disabled for testing)
+notification:
+  email_enabled: false
+  slack_enabled: false
+
+# Global Settings
+log_level: "DEBUG"      # Debug level for testing
+log_file: "/Users/sangwon/Project/Project_personal/RotaryShield/test_data/rotaryshield_test.log"
+pid_file: "/Users/sangwon/Project/Project_personal/RotaryShield/test_data/rotaryshield_test.pid"
+daemon_mode: false      # Run in foreground for testing
+user: ""                # Run as current user for testing
+group: ""               # Run as current group for testing
+
+# Advanced Configuration
+advanced:
+  max_memory_mb: 100
+  max_cpu_percent: 10
+  worker_threads: 2     # Reduced for testing
+  
+  enable_integrity_checks: true
+  log_injection_prevention: true
+  rate_limit_config_changes: true
+  
+  prometheus_enabled: false
+  prometheus_port: 9091
+  
+  # Testing options
+  debug_mode: true
+  test_mode: true       # Enable test mode
+  simulate_attacks: false

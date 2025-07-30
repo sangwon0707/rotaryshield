@@ -21,10 +21,27 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# Import RotaryShield components
-from .security.engine import SecurityEngine
-from .config import ConfigManager
-from .utils.logging import setup_logging, get_audit_logger
+# Import RotaryShield components - handle both direct script and module import
+try:
+    # When run as module (python -m rotaryshield or installed via pip)
+    from .security.engine import SecurityEngine
+    from .config import ConfigManager
+    from .utils.logging import setup_logging, get_audit_logger
+except ImportError:
+    # When run as direct script (python main.py)
+    import sys
+    from pathlib import Path
+    
+    # Add the src directory to Python path
+    current_dir = Path(__file__).resolve().parent
+    src_dir = current_dir.parent
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+    
+    # Now import with absolute imports
+    from rotaryshield.security.engine import SecurityEngine
+    from rotaryshield.config import ConfigManager
+    from rotaryshield.utils.logging import setup_logging, get_audit_logger
 
 
 class RotaryShieldDaemon:
@@ -356,7 +373,10 @@ def test_configuration(config_path: Optional[str]) -> bool:
         print(f"✓ Database path: {config.database.db_path}")
         
         # Test pattern compilation
-        from .monitoring.pattern_matcher import PatternMatcher
+        try:
+            from .monitoring.pattern_matcher import PatternMatcher
+        except ImportError:
+            from rotaryshield.monitoring.pattern_matcher import PatternMatcher
         pattern_matcher = PatternMatcher()
         
         valid_patterns = 0
