@@ -14,8 +14,119 @@ Security Features:
 import re
 import ipaddress
 import os
+import unicodedata
 from typing import Optional, Tuple, List, Any
 from pathlib import Path
+
+
+def normalize_and_validate_unicode(text: str, max_length: int = 1000) -> Tuple[bool, str, Optional[str]]:
+    """
+    Normalize and validate Unicode text to prevent various Unicode-based attacks.
+    
+    Args:
+        text: Text to normalize and validate
+        max_length: Maximum allowed length after normalization
+        
+    Returns:
+        Tuple of (is_valid, error_message, normalized_text)
+    """
+    if not text or not isinstance(text, str):
+        return False, "Text must be a non-empty string", None
+    
+    try:
+        # First, check for dangerous Unicode categories
+        dangerous_categories = {
+            'Cf',  # Format characters (invisible)
+            'Cs',  # Surrogate characters
+            'Co',  # Private use characters
+        }
+        
+        for char in text:
+            if unicodedata.category(char) in dangerous_categories:
+                return False, f"Text contains dangerous Unicode character: {repr(char)}", None
+        
+        # Check for zero-width characters that could be used in attacks
+        zero_width_chars = [
+            '\u200B',  # Zero Width Space
+            '\u200C',  # Zero Width Non-Joiner
+            '\u200D',  # Zero Width Joiner
+            '\u2060',  # Word Joiner
+            '\uFEFF',  # Zero Width No-Break Space
+        ]
+        
+        for zwc in zero_width_chars:
+            if zwc in text:
+                return False, f"Text contains zero-width character: {repr(zwc)}", None
+        
+        # Perform Unicode normalization to prevent homograph attacks
+        # Use NFKC (Canonical Decomposition, followed by Canonical Composition)
+        # This converts similar-looking characters to their canonical forms
+        normalized = unicodedata.normalize('NFKC', text)
+        
+        # Check if normalization changed the text significantly
+        if len(normalized) != len(text):
+            # Allow minor differences but reject major changes
+            length_diff = abs(len(normalized) - len(text))
+            if length_diff > len(text) * 0.1:  # More than 10% change
+                return False, "Text normalization resulted in significant changes", None
+        
+        # Check for mixed script attacks (multiple writing systems)
+        scripts = set()
+        for char in normalized:
+            if char.isalpha():
+                script = unicodedata.name(char, '').split()[0] if unicodedata.name(char, '') else 'UNKNOWN'
+                if script and script != 'UNKNOWN':
+                    scripts.add(script)
+        
+        # Allow common combinations but reject suspicious ones
+        allowed_script_combinations = {
+            frozenset(['LATIN']),
+            frozenset(['LATIN', 'DIGIT']),
+            frozenset(['CYRILLIC']),
+            frozenset(['GREEK']),
+            frozenset(['ARABIC']),
+            frozenset(['HEBREW']),
+            frozenset(['CJK']),  # Chinese, Japanese, Korean
+        }
+        
+        if len(scripts) > 1:
+            script_set = frozenset(scripts)
+            if script_set not in allowed_script_combinations:
+                return False, f"Text contains mixed scripts: {list(scripts)}", None
+        
+        # Check for bidirectional text attacks
+        bidi_chars = [
+            '\u202A',  # Left-to-Right Embedding
+            '\u202B',  # Right-to-Left Embedding
+            '\u202C',  # Pop Directional Formatting
+            '\u202D',  # Left-to-Right Override
+            '\u202E',  # Right-to-Left Override
+            '\u2066',  # Left-to-Right Isolate
+            '\u2067',  # Right-to-Left Isolate
+            '\u2068',  # First Strong Isolate
+            '\u2069',  # Pop Directional Isolate
+        ]
+        
+        for bidi_char in bidi_chars:
+            if bidi_char in normalized:
+                return False, f"Text contains bidirectional control character: {repr(bidi_char)}", None
+        
+        # Final length check
+        if len(normalized) > max_length:
+            return False, f"Normalized text too long: {len(normalized)} > {max_length}", None
+        
+        # Check for repeated suspicious patterns that might indicate an attack
+        if len(normalized) > 10:
+            # Look for repeated patterns that might be suspicious
+            for i in range(len(normalized) - 3):
+                pattern = normalized[i:i+3]
+                if normalized.count(pattern) > len(normalized) // 10:  # Pattern repeats more than 10% of text
+                    return False, "Text contains suspicious repeated patterns", None
+        
+        return True, "", normalized
+        
+    except Exception as e:
+        return False, f"Unicode validation error: {e}", None
 
 
 def validate_ip_address(ip: str) -> Tuple[bool, str, Optional[ipaddress.ip_address]]:
@@ -107,6 +218,7 @@ def sanitize_string(text: str, max_length: int = 1000,
                    allow_special_chars: bool = True) -> str:
     """
     Sanitize string input to prevent injection attacks.
+    Enhanced with SQL injection, shell command injection, and Unicode attack protection.
     
     Args:
         text: String to sanitize
@@ -123,6 +235,16 @@ def sanitize_string(text: str, max_length: int = 1000,
     if not isinstance(text, str):
         text = str(text)
     
+    # First, apply Unicode normalization and validation
+    is_valid, error, normalized_text = normalize_and_validate_unicode(text, max_length)
+    if not is_valid:
+        # If Unicode validation fails, use a heavily sanitized version
+        text = ''.join(char for char in text if ord(char) < 128)  # ASCII only
+        if not text:
+            return "[INVALID_UNICODE]"
+    else:
+        text = normalized_text
+    
     # Remove null bytes and most control characters
     if allow_newlines:
         # Keep newlines and tabs
@@ -137,12 +259,63 @@ def sanitize_string(text: str, max_length: int = 1000,
             if ord(char) >= 32
         )
     
-    # Remove ANSI escape sequences
-    sanitized = re.sub(r'\x1b\[[0-9;]*m', '', sanitized)
+    # Remove ANSI escape sequences and other escape sequences
+    sanitized = re.sub(r'\x1b\[[0-9;]*[mK]', '', sanitized)
+    sanitized = re.sub(r'\x1b\][0-9];[^\x07]*\x07', '', sanitized)
+    
+    # Remove dangerous SQL keywords and patterns (case insensitive)
+    sql_keywords = [
+        'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
+        'union', 'exec', 'execute', 'script', 'declare', 'cast', 'convert',
+        'information_schema', 'sys', 'master', 'xp_', 'sp_', 'fn_',
+        'waitfor', 'delay', 'benchmark', 'sleep', 'pg_sleep'
+    ]
+    
+    for keyword in sql_keywords:
+        # Remove standalone SQL keywords (word boundaries)
+        pattern = r'\b' + re.escape(keyword) + r'\b'
+        sanitized = re.sub(pattern, '[FILTERED]', sanitized, flags=re.IGNORECASE)
+    
+    # Remove shell metacharacters that could be dangerous
+    shell_metacharacters = {
+        ';': '[SEMICOLON]',  # Command separator
+        '|': '[PIPE]',       # Pipe operator
+        '&': '[AMP]',        # Background operator
+        '$': '[DOLLAR]',     # Variable expansion
+        '`': '[BACKTICK]',   # Command substitution
+        '$(': '[CMDSUBST]',  # Command substitution
+        '${': '[VARSUBST]',  # Variable substitution
+        '||': '[OR]',        # Logical OR
+        '&&': '[AND]',       # Logical AND
+        '>>': '[APPEND]',    # Append redirect
+        '<<': '[HEREDOC]',   # Here document
+    }
+    
+    # Apply shell metacharacter filtering first (longer patterns first)
+    for metachar in sorted(shell_metacharacters.keys(), key=len, reverse=True):
+        if metachar in sanitized:
+            sanitized = sanitized.replace(metachar, shell_metacharacters[metachar])
+    
+    # Additional dangerous pattern removal
+    dangerous_patterns = [
+        r'<script[^>]*>.*?</script>',  # Script tags
+        r'javascript:',                # JavaScript URLs
+        r'vbscript:',                 # VBScript URLs
+        r'on\w+\s*=',                 # Event handlers
+        r'eval\s*\(',                 # eval() calls
+        r'exec\s*\(',                 # exec() calls
+        r'/\*.*?\*/',                 # SQL comments
+        r'--.*?$',                    # SQL line comments
+        r'#.*?$',                     # Shell comments
+    ]
+    
+    for pattern in dangerous_patterns:
+        sanitized = re.sub(pattern, '[FILTERED]', sanitized, flags=re.IGNORECASE | re.DOTALL)
     
     # Optionally restrict special characters
     if not allow_special_chars:
         # Only allow alphanumeric, spaces, and basic punctuation
+        # Updated to allow filtered placeholders
         sanitized = re.sub(r'[^\w\s\-_.:/=\[\]()]', '', sanitized)
     
     # Truncate to maximum length
@@ -262,8 +435,16 @@ def validate_regex_pattern(pattern: str, max_complexity: int = 100) -> Tuple[boo
     Returns:
         Tuple of (is_valid, error_message, compiled_pattern)
     """
-    if not pattern or not isinstance(pattern, str):
+    if not isinstance(pattern, str):
+        return False, "Pattern must be a string", None
+    
+    if not pattern:
         return False, "Pattern must be a non-empty string", None
+    
+    # Check for control characters that could be problematic
+    for char in pattern:
+        if ord(char) < 32 and char not in '\t\n\r':
+            return False, f"Pattern contains invalid control character: {repr(char)}", None
     
     # Check pattern length
     if len(pattern) > 1000:
@@ -290,6 +471,7 @@ def validate_regex_pattern(pattern: str, max_complexity: int = 100) -> Tuple[boo
 def _analyze_regex_complexity(pattern: str) -> int:
     """
     Analyze regex pattern complexity to prevent ReDoS attacks.
+    Enhanced analysis that detects catastrophic backtracking patterns.
     
     Args:
         pattern: Regex pattern to analyze
@@ -299,16 +481,41 @@ def _analyze_regex_complexity(pattern: str) -> int:
     """
     complexity_score = 0
     
+    # Critical ReDoS patterns - immediate high score
+    catastrophic_patterns = [
+        r'\([^)]*[*+]\)[*+]',  # (a+)+ or (a*)* patterns
+        r'\([^)]*[*+]\)[*+][^+*?{]*[*+]',  # (a+)+(b+)+ patterns
+        r'\([^|)]*\|[^|)]*\)[*+]',  # (a|a)* patterns
+        r'\.[*+]\.[*+]',  # .*.* or .+.+ patterns
+    ]
+    
+    for cat_pattern in catastrophic_patterns:
+        matches = len(re.findall(cat_pattern, pattern))
+        if matches > 0:
+            complexity_score += matches * 200  # Very high penalty
+    
+    # Detect nested quantifiers more precisely
+    # Look for quantifiers inside groups followed by quantifiers
+    nested_quantifier_patterns = [
+        r'\([^)]*[*+?]\)[*+?]',  # Basic nested quantifiers
+        r'\([^)]*\{[^}]+\}\)[*+?]',  # {n,m} followed by quantifier
+        r'\([^)]*[*+?][^)]*\)[*+?]',  # Multiple quantifiers in group
+    ]
+    
+    for nested_pattern in nested_quantifier_patterns:
+        matches = len(re.findall(nested_pattern, pattern))
+        complexity_score += matches * 150
+    
     # Count different regex features that can be problematic
     complexity_weights = {
-        r'\*': 3,      # Zero or more quantifier
-        r'\+': 3,      # One or more quantifier
+        r'\*': 4,      # Zero or more quantifier
+        r'\+': 4,      # One or more quantifier  
         r'\?': 2,      # Zero or one quantifier
-        r'\{': 4,      # Specific quantifier
-        r'\(.*\)': 5,  # Capturing groups
-        r'\[.*\]': 2,  # Character classes
-        r'\.': 2,      # Any character
-        r'\|': 3,      # Alternation
+        r'\{[^}]+\}': 6,  # Specific quantifier ranges
+        r'\([^)]*\)': 3,  # Capturing groups
+        r'\[.*?\]': 2,  # Character classes
+        r'\.': 3,      # Any character (increased weight)
+        r'\|': 4,      # Alternation (increased weight)
         r'\$': 1,      # End anchor
         r'\^': 1,      # Start anchor
     }
@@ -317,13 +524,57 @@ def _analyze_regex_complexity(pattern: str) -> int:
         matches = len(re.findall(feature, pattern))
         complexity_score += matches * weight
     
-    # Additional penalty for nested quantifiers (very dangerous)
-    nested_quantifiers = len(re.findall(r'[*+?][*+?]', pattern))
-    complexity_score += nested_quantifiers * 20
+    # Special penalty for multiple wildcards
+    wildcard_count = pattern.count('.*') + pattern.count('.+')
+    if wildcard_count > 2:
+        complexity_score += wildcard_count * 15
     
-    # Penalty for very long patterns
+    # Penalty for alternation with many options
+    alternation_matches = re.findall(r'\([^)]*\|[^)]*\)', pattern)
+    for alt_match in alternation_matches:
+        pipe_count = alt_match.count('|')
+        if pipe_count > 5:
+            complexity_score += pipe_count * 10
+    
+    # Penalty for very long patterns (more aggressive)
     if len(pattern) > 100:
-        complexity_score += (len(pattern) - 100) // 10
+        length_penalty = (len(pattern) - 100) * 2  # 2 points per character over 100
+        complexity_score += length_penalty
+    
+    # Penalty for complex character classes
+    char_class_matches = re.findall(r'\[([^\]]+)\]', pattern)
+    for char_class in char_class_matches:
+        if len(char_class) > 10:  # Lower threshold
+            complexity_score += 15  # Higher penalty
+        if '-' in char_class and len(char_class) > 5:  # Stricter range check
+            complexity_score += 10
+        # Extra penalty for complex ranges like a-zA-Z0-9
+        range_count = char_class.count('-')
+        if range_count > 2:
+            complexity_score += range_count * 8
+    
+    # Penalty for large quantifier ranges
+    quantifier_matches = re.findall(r'\{(\d+),(\d*)\}', pattern)
+    for min_qty, max_qty in quantifier_matches:
+        min_val = int(min_qty)
+        max_val = int(max_qty) if max_qty else 1000
+        if max_val > 100 or (max_val - min_val) > 50:
+            complexity_score += 20
+    
+    # Additional penalty for repeated patterns that could be problematic
+    # Look for repeated constructs like (\d{1,3}\.){3}
+    repeated_pattern_matches = re.findall(r'\([^)]+\)\{[^}]+\}', pattern)
+    for repeated in repeated_pattern_matches:
+        complexity_score += 25  # High penalty for repeated groups
+    
+    # Penalty for multiple quoted strings (often in log patterns)
+    quoted_pattern_count = pattern.count('\"')
+    if quoted_pattern_count > 4:
+        complexity_score += quoted_pattern_count * 5
+    
+    # Penalty for negated character classes [^...]
+    negated_char_classes = len(re.findall(r'\[\^[^\]]+\]', pattern))
+    complexity_score += negated_char_classes * 15
     
     return complexity_score
 
@@ -436,7 +687,7 @@ def validate_hostname(hostname: str) -> Tuple[bool, str]:
 
 def validate_url(url: str, allowed_schemes: Optional[List[str]] = None) -> Tuple[bool, str]:
     """
-    Validate URL format and scheme.
+    Validate URL format and scheme with enhanced security checks.
     
     Args:
         url: URL to validate
@@ -453,24 +704,82 @@ def validate_url(url: str, allowed_schemes: Optional[List[str]] = None) -> Tuple
     if not url:
         return False, "URL cannot be empty"
     
+    # Check for dangerous characters that could be used in attacks
+    dangerous_chars = ['\n', '\r', '\t', '\x00', '\x0b', '\x0c']
+    for char in dangerous_chars:
+        if char in url:
+            return False, f"URL contains invalid control character: {repr(char)}"
+    
+    # Check for Unicode normalization attacks
+    import unicodedata
+    try:
+        normalized_url = unicodedata.normalize('NFKC', url)
+        if normalized_url != url:
+            return False, "URL contains Unicode normalization attack vectors"
+    except Exception:
+        return False, "URL contains invalid Unicode characters"
+    
     # Set default allowed schemes
     if allowed_schemes is None:
         allowed_schemes = ['http', 'https']
     
-    # Basic URL validation
-    url_pattern = r'^(https?|ftp)://[^\s/$.?#].[^\s]*$'
+    # Enhanced URL validation with more precise pattern
+    url_pattern = r'^(https?|ftps?)://[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*(/[^\s]*)?$'
     
     if not re.match(url_pattern, url, re.IGNORECASE):
         return False, "Invalid URL format"
     
-    # Check scheme
+    # Check scheme more carefully
+    if '://' not in url:
+        return False, "URL missing scheme separator"
+    
     scheme = url.split('://', 1)[0].lower()
     if scheme not in allowed_schemes:
         return False, f"URL scheme not allowed: {scheme} (allowed: {allowed_schemes})"
     
+    # Additional security checks
+    url_lower = url.lower()
+    
+    # Check for suspicious patterns
+    suspicious_patterns = [
+        'javascript:', 'vbscript:', 'data:', 'file:', 'ftp:',
+        'about:', 'chrome:', 'resource:', 'moz-extension:',
+    ]
+    
+    for pattern in suspicious_patterns:
+        if pattern in url_lower and pattern.split(':')[0] not in allowed_schemes:
+            return False, f"Suspicious URL scheme detected: {pattern}"
+    
+    # Check for URL encoding attacks
+    import urllib.parse
+    try:
+        decoded_url = urllib.parse.unquote(url)
+        if decoded_url != url:
+            # Re-validate the decoded URL for dangerous patterns
+            for pattern in suspicious_patterns:
+                if pattern in decoded_url.lower():
+                    return False, f"URL encoding attack detected: {pattern}"
+    except Exception:
+        return False, "Invalid URL encoding"
+    
     # Check length
     if len(url) > 2048:  # Reasonable URL length limit
         return False, "URL too long (max 2048 characters)"
+    
+    # Check for homograph attacks (similar-looking characters)
+    suspicious_unicode_ranges = [
+        (0x0400, 0x04FF),  # Cyrillic
+        (0x0370, 0x03FF),  # Greek
+        (0x0590, 0x05FF),  # Hebrew
+        (0x0600, 0x06FF),  # Arabic
+    ]
+    
+    ascii_domain_part = url.split('://')[1].split('/')[0] if '://' in url else url
+    for char in ascii_domain_part:
+        char_code = ord(char)
+        for start, end in suspicious_unicode_ranges:
+            if start <= char_code <= end:
+                return False, "URL contains potentially confusing Unicode characters"
     
     return True, ""
 

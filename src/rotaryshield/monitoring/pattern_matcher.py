@@ -15,6 +15,7 @@ import re
 import time
 import logging
 import threading
+import signal
 from typing import Dict, List, Optional, Tuple, Pattern
 from dataclasses import dataclass
 from enum import Enum
@@ -27,6 +28,11 @@ class PatternError(Exception):
 
 class PatternComplexityError(PatternError):
     """Exception for overly complex regex patterns."""
+    pass
+
+
+class PatternTimeoutError(PatternError):
+    """Exception for pattern matching timeouts."""
     pass
 
 
@@ -181,6 +187,7 @@ class PatternMatcher:
     def _analyze_pattern_complexity(self, regex: str) -> int:
         """
         Analyze regex pattern complexity to prevent ReDoS attacks.
+        Enhanced analysis that detects catastrophic backtracking patterns.
         
         Args:
             regex: Regular expression string
@@ -188,22 +195,9 @@ class PatternMatcher:
         Returns:
             Complexity score (higher = more complex)
         """
-        complexity_score = 0
-        
-        # Count different regex features
-        for feature, weight in self.COMPLEXITY_WEIGHTS.items():
-            matches = len(re.findall(feature, regex))
-            complexity_score += matches * weight
-        
-        # Additional complexity for nested quantifiers (very dangerous)
-        nested_quantifiers = len(re.findall(r'[*+?][*+?]', regex))
-        complexity_score += nested_quantifiers * 20
-        
-        # Penalty for very long patterns
-        if len(regex) > 100:
-            complexity_score += (len(regex) - 100) // 10
-        
-        return complexity_score
+        # Use the enhanced complexity analysis from validators
+        from rotaryshield.utils.validators import _analyze_regex_complexity
+        return _analyze_regex_complexity(regex)
     
     def match_line(self, log_line: str) -> List[Tuple[str, List[str]]]:
         """
@@ -263,30 +257,57 @@ class PatternMatcher:
         """
         start_time = time.time()
         
-        try:
-            # Use search instead of match for more flexible matching
-            match = compiled_pattern.pattern.search(text)
-            
-            # Track timing
-            match_time = time.time() - start_time
-            compiled_pattern.total_match_time += match_time
-            self._total_match_time += match_time
-            self._total_matches += 1
-            
-            # Check for slow patterns
-            if match_time > self.MAX_MATCH_TIME_SECONDS:
-                self.logger.warning(
-                    f"Slow pattern match: {compiled_pattern.name} took {match_time:.3f}s"
-                )
-            
-            return match
-            
-        except Exception as e:
+        # Set up timeout protection using threading
+        result = [None]  # Use list to allow modification in nested function
+        exception = [None]
+        
+        def pattern_match_worker():
+            """Worker function to execute pattern match."""
+            try:
+                result[0] = compiled_pattern.pattern.search(text)
+            except Exception as e:
+                exception[0] = e
+        
+        # Create and start worker thread
+        worker_thread = threading.Thread(target=pattern_match_worker)
+        worker_thread.daemon = True
+        worker_thread.start()
+        
+        # Wait for completion with timeout
+        worker_thread.join(timeout=self.MAX_MATCH_TIME_SECONDS)
+        
+        # Calculate actual execution time
+        match_time = time.time() - start_time
+        
+        # Update statistics
+        compiled_pattern.total_match_time += match_time
+        self._total_match_time += match_time
+        self._total_matches += 1
+        
+        if worker_thread.is_alive():
+            # Timeout occurred
             self._timeout_count += 1
             self.logger.error(
-                f"Pattern match error for {compiled_pattern.name}: {e}"
+                f"Pattern match timeout for {compiled_pattern.name}: "
+                f"exceeded {self.MAX_MATCH_TIME_SECONDS}s limit"
             )
             return None
+        
+        if exception[0] is not None:
+            # Exception occurred during matching
+            self.logger.error(
+                f"Pattern match error for {compiled_pattern.name}: {exception[0]}"
+            )
+            return None
+        
+        # Check for slow patterns (but not timed out)
+        if match_time > self.MAX_MATCH_TIME_SECONDS * 0.8:  # Warn at 80% of timeout
+            self.logger.warning(
+                f"Slow pattern match: {compiled_pattern.name} took {match_time:.3f}s "
+                f"(80% of {self.MAX_MATCH_TIME_SECONDS}s timeout)"
+            )
+        
+        return result[0]
     
     def _sanitize_log_line(self, log_line: str) -> str:
         """
