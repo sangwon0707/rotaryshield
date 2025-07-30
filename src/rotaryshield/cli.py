@@ -414,6 +414,241 @@ class RotaryShieldCLI:
             print(f"Error testing configuration: {e}")
             self.logger.error(f"Configuration test failed: {e}")
             return 1
+    
+    def monitor(self, tail_lines: int = 20, follow: bool = False) -> int:
+        """Monitor RotaryShield activity with real-time log viewing."""
+        print("RotaryShield Monitor")
+        print("=" * 50)
+        
+        try:
+            # Show current status first
+            print("Current Status:")
+            status_result = self._execute_system_command(["systemctl", "is-active", self.service_name])
+            if status_result.success:
+                print(f"Service: {status_result.message.strip()}")
+            else:
+                print(f"Service: inactive")
+            
+            print(f"\nMonitoring logs (last {tail_lines} lines):")
+            print("-" * 50)
+            
+            # Build journalctl command
+            cmd = ["journalctl", "-u", self.service_name, "-n", str(tail_lines)]
+            if follow:
+                cmd.append("-f")
+            cmd.append("--no-pager")
+            
+            if follow:
+                # For follow mode, use direct subprocess for real-time output
+                try:
+                    process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        universal_newlines=True,
+                        bufsize=1
+                    )
+                    
+                    print("Press Ctrl+C to stop monitoring...")
+                    
+                    for line in iter(process.stdout.readline, ''):
+                        print(line.rstrip())
+                    
+                    process.wait()
+                    return process.returncode
+                    
+                except KeyboardInterrupt:
+                    print("\nMonitoring stopped by user")
+                    if process:
+                        process.terminate()
+                    return 0
+            else:
+                # For static mode, use our execute method
+                result = self._execute_system_command(cmd)
+                if result.success and result.message:
+                    print(result.message)
+                    return 0
+                else:
+                    print("No log entries found")
+                    return 1
+                    
+        except Exception as e:
+            print(f"Error monitoring service: {e}")
+            self.logger.error(f"Monitor failed: {e}")
+            return 1
+    
+    def list_blocked(self) -> int:
+        """List currently blocked IP addresses."""
+        print("RotaryShield Blocked IPs")
+        print("=" * 50)
+        
+        try:
+            # Import database manager to query blocked IPs
+            from .database.ip_manager import IPManager
+            
+            ip_manager = IPManager()
+            
+            # Get all banned IPs
+            banned_ips = ip_manager.get_all_banned_ips()
+            
+            if not banned_ips:
+                print("No IP addresses are currently blocked.")
+                return 0
+            
+            print(f"Total blocked IPs: {len(banned_ips)}")
+            print()
+            print(f"{'IP Address':<15} {'Ban Time':<20} {'Reason':<30} {'Status'}")
+            print("-" * 80)
+            
+            for ip_record in banned_ips:
+                ip = ip_record.ip_address
+                ban_time = ip_record.ban_timestamp.strftime('%Y-%m-%d %H:%M:%S') if ip_record.ban_timestamp else 'Unknown'
+                reason = ip_record.reason or 'No reason specified'
+                status = ip_record.status.value if ip_record.status else 'Unknown'
+                
+                # Truncate long reasons
+                if len(reason) > 28:
+                    reason = reason[:25] + "..."
+                
+                print(f"{ip:<15} {ban_time:<20} {reason:<30} {status}")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Error listing blocked IPs: {e}")
+            self.logger.error(f"List blocked IPs failed: {e}")
+            return 1
+    
+    def unblock_ip(self, ip_address: str) -> int:
+        """Unblock a specific IP address."""
+        print(f"Unblocking IP: {ip_address}")
+        print("=" * 50)
+        
+        try:
+            # Validate IP address
+            from .utils.validators import validate_ip_address
+            
+            is_valid, error, normalized_ip = validate_ip_address(ip_address)
+            if not is_valid:
+                print(f"Error: {error}")
+                return 1
+            
+            # Import database manager
+            from .database.ip_manager import IPManager
+            
+            ip_manager = IPManager()
+            
+            # Check if IP is currently banned
+            ban_record = ip_manager.get_ban_record(normalized_ip)
+            if not ban_record:
+                print(f"IP {normalized_ip} is not currently blocked.")
+                return 0
+            
+            # Unban the IP
+            success = ip_manager.unban_ip(normalized_ip, reason="Manual unblock via CLI")
+            
+            if success:
+                print(f"Successfully unblocked IP: {normalized_ip}")
+                
+                # Also remove from firewall if possible
+                try:
+                    from .firewall.manager import FirewallManager
+                    
+                    fw_manager = FirewallManager()
+                    fw_manager.remove_ip_ban(normalized_ip)
+                    print(f"Removed firewall rule for: {normalized_ip}")
+                    
+                except Exception as fw_e:
+                    print(f"Warning: Could not remove firewall rule: {fw_e}")
+                
+                return 0
+            else:
+                print(f"Failed to unblock IP: {normalized_ip}")
+                return 1
+                
+        except Exception as e:
+            print(f"Error unblocking IP: {e}")
+            self.logger.error(f"Unblock IP failed: {e}")
+            return 1
+    
+    def show_stats(self) -> int:
+        """Display system statistics and performance metrics."""
+        print("RotaryShield Statistics")
+        print("=" * 50)
+        
+        try:
+            # Import required modules
+            from .database.ip_manager import IPManager
+            from .monitoring.pattern_matcher import PatternMatcher
+            
+            ip_manager = IPManager()
+            
+            # Database statistics
+            stats = ip_manager.get_statistics()
+            
+            print("Database Statistics:")
+            print(f"  Total banned IPs: {stats.get('total_banned_ips', 0)}")
+            print(f"  Active bans: {stats.get('active_bans', 0)}")
+            print(f"  Expired bans: {stats.get('expired_bans', 0)}")
+            print(f"  Total security events: {stats.get('total_events', 0)}")
+            
+            # Pattern matcher statistics if available
+            try:
+                pattern_matcher = PatternMatcher()
+                pattern_stats = pattern_matcher.get_statistics()
+                
+                print("\nPattern Matching Statistics:")
+                print(f"  Total patterns: {pattern_stats.get('total_patterns', 0)}")
+                print(f"  Total matches: {pattern_stats.get('total_matches', 0)}")
+                print(f"  Average match time: {pattern_stats.get('average_match_time_ms', 0):.2f}ms")
+                print(f"  Timeout count: {pattern_stats.get('timeout_count', 0)}")
+                
+            except Exception as pattern_e:
+                print(f"\nPattern statistics unavailable: {pattern_e}")
+            
+            # System resource usage
+            try:
+                import psutil
+                
+                # Get current process if running
+                rotary_procs = []
+                for proc in psutil.process_iter(['pid', 'name', 'memory_info', 'cpu_percent']):
+                    if 'rotaryshield' in proc.info['name'].lower():
+                        rotary_procs.append(proc)
+                
+                if rotary_procs:
+                    print("\nSystem Resource Usage:")
+                    for proc in rotary_procs:
+                        memory_mb = proc.info['memory_info'].rss / 1024 / 1024
+                        cpu_percent = proc.info['cpu_percent']
+                        print(f"  PID {proc.info['pid']}: {memory_mb:.1f}MB RAM, {cpu_percent:.1f}% CPU")
+                else:
+                    print("\nSystem Resource Usage: RotaryShield not currently running")
+                    
+            except ImportError:
+                print("\nSystem resource monitoring unavailable (psutil not installed)")
+            except Exception as sys_e:
+                print(f"\nSystem resource monitoring error: {sys_e}")
+            
+            # Recent activity summary
+            print("\nRecent Activity (last 24 hours):")
+            recent_bans = ip_manager.get_recent_bans(hours=24)
+            print(f"  New bans: {len(recent_bans)}")
+            
+            if recent_bans:
+                print("  Recent banned IPs:")
+                for ban in recent_bans[:5]:  # Show last 5
+                    ban_time = ban.ban_timestamp.strftime('%H:%M:%S') if ban.ban_timestamp else 'Unknown'
+                    print(f"    {ban.ip_address} at {ban_time}")
+                if len(recent_bans) > 5:
+                    print(f"    ... and {len(recent_bans) - 5} more")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Error retrieving statistics: {e}")
+            self.logger.error(f"Statistics failed: {e}")
+            return 1
 
 
 def create_base_parser() -> argparse.ArgumentParser:
@@ -507,11 +742,93 @@ def control_main() -> int:
         return 1
 
 
+def monitor_main() -> int:
+    """Entry point for rotaryshield-monitor command."""
+    parser = create_base_parser()
+    parser.description = "Monitor RotaryShield activity with real-time logs"
+    parser.add_argument(
+        "-n", "--lines",
+        type=int,
+        default=20,
+        help="Number of log lines to show (default: 20)"
+    )
+    parser.add_argument(
+        "-f", "--follow",
+        action="store_true",
+        help="Follow log output in real-time"
+    )
+    args = parser.parse_args()
+    
+    # Setup logging
+    setup_logging(log_level=args.log_level, enable_audit=True)
+    
+    cli = RotaryShieldCLI()
+    if args.config:
+        cli.config_path = args.config
+    
+    return cli.monitor(tail_lines=args.lines, follow=args.follow)
+
+
+def list_blocked_main() -> int:
+    """Entry point for rotaryshield-list-blocked command."""
+    parser = create_base_parser()
+    parser.description = "List currently blocked IP addresses"
+    args = parser.parse_args()
+    
+    # Setup logging
+    setup_logging(log_level=args.log_level, enable_audit=True)
+    
+    cli = RotaryShieldCLI()
+    if args.config:
+        cli.config_path = args.config
+    
+    return cli.list_blocked()
+
+
+def unblock_main() -> int:
+    """Entry point for rotaryshield-unblock command."""
+    parser = create_base_parser()
+    parser.description = "Unblock a specific IP address"
+    parser.add_argument(
+        "ip_address",
+        help="IP address to unblock"
+    )
+    args = parser.parse_args()
+    
+    # Setup logging
+    setup_logging(log_level=args.log_level, enable_audit=True)
+    
+    cli = RotaryShieldCLI()
+    if args.config:
+        cli.config_path = args.config
+    
+    return cli.unblock_ip(args.ip_address)
+
+
+def stats_main() -> int:
+    """Entry point for rotaryshield-stats command."""
+    parser = create_base_parser()
+    parser.description = "Display RotaryShield statistics and metrics"
+    args = parser.parse_args()
+    
+    # Setup logging
+    setup_logging(log_level=args.log_level, enable_audit=True)
+    
+    cli = RotaryShieldCLI()
+    if args.config:
+        cli.config_path = args.config
+    
+    return cli.show_stats()
+
+
 if __name__ == "__main__":
     # When run directly, provide a simple interface
     if len(sys.argv) < 2:
         print("Usage: python cli.py <command>")
-        print("Commands: status, start, stop, restart, test-config")
+        print("Commands:")
+        print("  Service Control: status, start, stop, restart")
+        print("  Monitoring: monitor, list-blocked, unblock, stats")
+        print("  Configuration: test-config")
         sys.exit(1)
     
     command = sys.argv[1]
@@ -524,6 +841,23 @@ if __name__ == "__main__":
         sys.exit(control_main())
     elif command == "test-config":
         sys.exit(config_main())
+    elif command == "monitor":
+        # Remove the command argument for proper parsing
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        sys.exit(monitor_main())
+    elif command == "list-blocked":
+        # Remove the command argument for proper parsing
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        sys.exit(list_blocked_main())
+    elif command == "unblock":
+        # Remove the command argument for proper parsing
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        sys.exit(unblock_main())
+    elif command == "stats":
+        # Remove the command argument for proper parsing
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        sys.exit(stats_main())
     else:
         print(f"Unknown command: {command}")
+        print("Available commands: status, start, stop, restart, test-config, monitor, list-blocked, unblock, stats")
         sys.exit(1)
