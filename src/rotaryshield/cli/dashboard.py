@@ -20,7 +20,7 @@ from typing import Optional
 # Add the parent directory to the path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from utils.validators import validate_ip_address, validate_port_number
+from utils.validators import validate_ip_address, validate_port
 from utils.logging import SecurityLogger
 from dashboard.server import DashboardServer
 
@@ -33,9 +33,50 @@ class DashboardCLI:
         self.server = None
         self.running = False
     
+    def show_banner_with_info(self):
+        """Display RotaryShield banner with version info - Modern design colors"""
+        # Modern color palette (Tailwind/Material Design inspired)
+        SLATE_BLUE = '\033[38;5;67m'      # Slate Blue #5B7B9A
+        ELECTRIC_BLUE = '\033[38;5;39m'   # Electric Blue #00AAFF
+        EMERALD = '\033[38;5;42m'         # Emerald #10B981
+        AMBER = '\033[38;5;214m'          # Amber #F59E0B
+        VIOLET = '\033[38;5;141m'         # Violet #8B5CF6
+        ROSE = '\033[38;5;205m'           # Rose #F43F5E
+        GRAY_100 = '\033[38;5;254m'       # Light Gray
+        GRAY_400 = '\033[38;5;245m'       # Medium Gray
+        BOLD = '\033[1m'
+        RESET = '\033[0m'
+        
+        print(f"""
+{BOLD}{SLATE_BLUE}┌─────────────────────────────────────────────────────────────┐{RESET}
+{BOLD}{SLATE_BLUE}│                                                             │{RESET}
+{BOLD}{ELECTRIC_BLUE}│  ██████╗  ██████╗ ████████╗ █████╗ ██████╗ ██╗   ██╗      │{RESET}
+{BOLD}{ELECTRIC_BLUE}│  ██╔══██╗██╔═══██╗╚══██╔══╝██╔══██╗██╔══██╗╚██╗ ██╔╝      │{RESET}
+{BOLD}{EMERALD}│  ██████╔╝██║   ██║   ██║   ███████║██████╔╝ ╚████╔╝       │{RESET}
+{BOLD}{EMERALD}│  ██╔══██╗██║   ██║   ██║   ██╔══██║██╔══██╗  ╚██╔╝        │{RESET}
+{BOLD}{VIOLET}│  ██║  ██║╚██████╔╝   ██║   ██║  ██║██║  ██║   ██║         │{RESET}
+{BOLD}{VIOLET}│  ╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝         │{RESET}
+{BOLD}{SLATE_BLUE}│                                                             │{RESET}
+{BOLD}{EMERALD}│  ███████╗██╗  ██╗██╗███████╗██╗     ██████╗                │{RESET}
+{BOLD}{EMERALD}│  ██╔════╝██║  ██║██║██╔════╝██║     ██╔══██╗               │{RESET}
+{BOLD}{ELECTRIC_BLUE}│  ███████╗███████║██║█████╗  ██║     ██║  ██║               │{RESET}
+{BOLD}{ELECTRIC_BLUE}│  ╚════██║██╔══██║██║██╔══╝  ██║     ██║  ██║               │{RESET}
+{BOLD}{VIOLET}│  ███████║██║  ██║██║███████╗███████╗██████╔╝               │{RESET}
+{BOLD}{VIOLET}│  ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═════╝                │{RESET}
+{BOLD}{SLATE_BLUE}│                                                             │{RESET}
+{BOLD}{EMERALD}│  🛡️  3-Layer Security Protection System  🛡️               │{RESET}
+{BOLD}{GRAY_100}│      Phase 2 Complete | Dashboard v2.0.0                   │{RESET}
+{BOLD}{AMBER}│      Engineered with ❤️  by Sangwon & Claude Code           │{RESET}
+{BOLD}{SLATE_BLUE}│                                                             │{RESET}
+{BOLD}{SLATE_BLUE}└─────────────────────────────────────────────────────────────┘{RESET}
+""")
+    
     def run(self, args):
         """Run the dashboard CLI command."""
         try:
+            # Display banner first
+            self.show_banner_with_info()
+            
             # Validate arguments
             if not self._validate_args(args):
                 return 1
@@ -87,13 +128,15 @@ class DashboardCLI:
         try:
             # Validate host
             if args.host != '127.0.0.1' and args.host != 'localhost':
-                if not validate_ip_address(args.host):
-                    print(f"❌ Invalid host address: {args.host}")
+                is_valid, error_or_ip, ip_obj = validate_ip_address(args.host)
+                if not is_valid:
+                    print(f"❌ Invalid host address: {args.host} - {error_or_ip}")
                     return False
             
             # Validate port
-            if not validate_port_number(args.port):
-                print(f"❌ Invalid port number: {args.port}")
+            is_valid, error, port_num = validate_port(args.port)
+            if not is_valid:
+                print(f"❌ Invalid port number: {args.port} - {error}")
                 return False
             
             # Check port range
