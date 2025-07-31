@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛡️ {{ title }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff; min-height: 100vh; overflow-x: hidden;
+        }
+        .header { 
+            background: rgba(0,0,0,0.3); padding: 20px 0; border-bottom: 2px solid #00d4aa;
+            backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 100;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 0 20px; }
+        .header-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        .logo { display: flex; align-items: center; gap: 15px; }
+        .logo h1 { font-size: 2.2rem; color: #00d4aa; text-shadow: 0 0 20px rgba(0,212,170,0.5); }
+        .status { display: flex; align-items: center; gap: 10px; }
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #28a745; 
+                     box-shadow: 0 0 10px #28a745; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        
+        .main { padding: 30px 0; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+                     gap: 20px; margin-bottom: 30px; }
+        .stat-card { 
+            background: rgba(255,255,255,0.1); border-radius: 15px; padding: 25px;
+            border: 1px solid rgba(255,255,255,0.2); position: relative; overflow: hidden;
+            transition: transform 0.3s ease; backdrop-filter: blur(5px);
+        }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-card::before { 
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, #00d4aa, #0099cc, #00d4aa);
+        }
+        .stat-number { font-size: 3rem; font-weight: 700; color: #00d4aa; 
+                      text-shadow: 0 0 10px rgba(0,212,170,0.5); margin-bottom: 5px; }
+        .stat-label { font-size: 0.95rem; color: #b0b0b0; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-icon { position: absolute; right: 20px; top: 20px; font-size: 2rem; opacity: 0.3; }
+        
+        .section { margin-bottom: 30px; }
+        .section-title { font-size: 1.4rem; color: #00d4aa; margin-bottom: 20px; 
+                        display: flex; align-items: center; gap: 10px; }
+        .section-title::before { content: ''; width: 4px; height: 20px; background: #00d4aa; }
+        
+        .table-container { 
+            background: rgba(255,255,255,0.1); border-radius: 15px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(5px);
+        }
+        .table-header { background: rgba(0,0,0,0.3); padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .table-header h3 { color: #00d4aa; font-size: 1.2rem; }
+        .table-wrapper { max-height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 15px 20px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        th { background: rgba(0,0,0,0.2); color: #00d4aa; font-weight: 600; position: sticky; top: 0; }
+        tbody tr:hover { background: rgba(255,255,255,0.05); }
+        .severity-critical { color: #dc3545; font-weight: 600; }
+        .severity-high { color: #fd7e14; font-weight: 600; }
+        .severity-medium { color: #ffc107; font-weight: 600; }
+        .severity-low { color: #28a745; font-weight: 600; }
+        .ip-highlight { color: #00d4aa; font-weight: 600; }
+        .status-active { color: #dc3545; font-weight: 600; }
+        
+        .refresh-info { text-align: center; padding: 20px; color: #b0b0b0; font-size: 0.9rem; }
+        .loading { text-align: center; color: #b0b0b0; font-style: italic; padding: 40px; }
+        .error { text-align: center; color: #dc3545; padding: 40px; }
+        
+        .footer { background: rgba(0,0,0,0.3); padding: 20px 0; text-align: center; 
+                 color: #b0b0b0; font-size: 0.9rem; border-top: 1px solid rgba(255,255,255,0.1); }
+        
+        .isolated-badge {
+            background: linear-gradient(45deg, #00d4aa, #0099cc);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .header-content { flex-direction: column; gap: 15px; text-align: center; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .container { padding: 0 15px; }
+            th, td { padding: 10px; font-size: 0.9rem; }
+        }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(0,212,170,0.5); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,212,170,0.7); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <h1>🛡️ RotaryShield</h1>
+                    <div>
+                        <div style="font-size: 1rem; color: #b0b0b0;">
+                            Security Dashboard
+                            <span class="isolated-badge">Isolated</span>
+                        </div>
+                        <div style="font-size: 0.9rem; color: #00d4aa;">{{ organization }} - v{{ version }}</div>
+                    </div>
+                </div>
+                <div class="status">
+                    <div class="status-dot"></div>
+                    <div>
+                        <div>Dashboard Active</div>
+                        <div style="font-size: 0.8rem; color: #b0b0b0;">
+                            Last Updated: <span id="last-update">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- Statistics Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">🚫</div>
+                    <div class="stat-number" id="active-bans">--</div>
+                    <div class="stat-label">Active IP Bans</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-number" id="events-24h">--</div>
+                    <div class="stat-label">Events (24 Hours)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🔥</div>
+                    <div class="stat-number" id="events-1h">--</div>
+                    <div class="stat-label">Events (1 Hour)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-number" id="total-bans">--</div>
+                    <div class="stat-label">Total Bans</div>
+                </div>
+            </div>
+
+            <!-- Top Attackers Section -->
+            <div class="section">
+                <h2 class="section-title">🎯 Top Attacking IPs (24 Hours)</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>IP Address</th>
+                                    <th>Attack Attempts</th>
+                                    <th>Primary Attack Type</th>
+                                    <th>Threat Level</th>
+                                </tr>
+                            </thead>
+                            <tbody id="top-attackers-tbody">
+                                <tr><td colspan="4" class="loading">Loading top attackers...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Blocked IPs Section -->
+            <div class="section">
+                <h2 class="section-title">🚫 Currently Blocked IPs</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>IP Address</th>
+                                    <th>Block Reason</th>
+                                    <th>Attempts</th>
+                                    <th>Status</th>
+                                    <th>Blocked Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="blocked-ips-tbody">
+                                <tr><td colspan="5" class="loading">Loading blocked IPs...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Events Section -->
+            <div class="section">
+                <h2 class="section-title">📈 Recent Security Events</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Event Type</th>
+                                    <th>Source IP</th>
+                                    <th>Severity</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-events-tbody">
+                                <tr><td colspan="5" class="loading">Loading recent events...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="refresh-info">
+                📡 Dashboard auto-refreshes every 10 seconds | 🛡️ RotaryShield Isolated Dashboard | 🔗 Reading from main application
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            {{ title }} | {{ organization }} | Isolated Web Interface v{{ version }}
+        </div>
+    </footer>
+
+    <script>
+        let refreshInterval;
+        
+        // Initialize dashboard
+        function initDashboard() {
+            console.log('🛡️ Initializing RotaryShield Isolated Dashboard...');
+            loadAllData();
+            
+            // Auto-refresh every 10 seconds
+            refreshInterval = setInterval(loadAllData, 10000);
+        }
+        
+        // Load all dashboard data
+        async function loadAllData() {
+            try {
+                await Promise.all([
+                    loadStats(),
+                    loadTopAttackers(),
+                    loadBlockedIPs(),
+                    loadRecentEvents()
+                ]);
+                
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+            }
+        }
+        
+        // Load statistics
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('active-bans').textContent = data.data.active_bans || 0;
+                    document.getElementById('events-24h').textContent = data.data.events_24h || 0;
+                    document.getElementById('events-1h').textContent = data.data.events_1h || 0;
+                    document.getElementById('total-bans').textContent = data.data.total_bans || 0;
+                } else {
+                    console.warn('Stats API error:', data.error);
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+        
+        // Load top attackers
+        async function loadTopAttackers() {
+            try {
+                const response = await fetch('/api/top-attackers');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('top-attackers-tbody');
+                if (data.success && data.data.length > 0) {
+                    tbody.innerHTML = data.data.map(attacker => `
+                        <tr>
+                            <td><span class="ip-highlight">${attacker.ip_address}</span></td>
+                            <td><strong>${attacker.attempts}</strong></td>
+                            <td>${attacker.primary_type || 'Multiple'}</td>
+                            <td><span class="severity-${attacker.threat_level || 'high'}">${(attacker.threat_level || 'HIGH').toUpperCase()}</span></td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" class="loading">No attack data available</td></tr>';
+                }
+            } catch (error) {
+                document.getElementById('top-attackers-tbody').innerHTML = 
+                    '<tr><td colspan="4" class="error">Error loading data</td></tr>';
+            }
+        }
+        
+        // Load blocked IPs
+        async function loadBlockedIPs() {
+            try {
+                const response = await fetch('/api/blocked-ips');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('blocked-ips-tbody');
+                if (data.success && data.data.length > 0) {
+                    tbody.innerHTML = data.data.map(ip => `
+                        <tr>
+                            <td><span class="ip-highlight">${ip.ip_address}</span></td>
+                            <td>${ip.reason}</td>
+                            <td><strong>${ip.attempts}</strong></td>
+                            <td><span class="status-active">ACTIVE</span></td>
+                            <td>${new Date(ip.created_at * 1000).toLocaleDateString()} ${new Date(ip.created_at * 1000).toLocaleTimeString()}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" class="loading">No blocked IPs</td></tr>';
+                }
+            } catch (error) {
+                document.getElementById('blocked-ips-tbody').innerHTML = 
+                    '<tr><td colspan="5" class="error">Error loading data</td></tr>';
+            }
+        }
+        
+        // Load recent events
+        async function loadRecentEvents() {
+            try {
+                const response = await fetch('/api/recent-events');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('recent-events-tbody');
+                if (data.success && data.data.length > 0) {
+                    tbody.innerHTML = data.data.slice(0, 20).map(event => `
+                        <tr>
+                            <td>${new Date(event.created_at * 1000).toLocaleTimeString()}</td>
+                            <td><strong>${event.event_type}</strong></td>
+                            <td><span class="ip-highlight">${event.ip_address || 'Unknown'}</span></td>
+                            <td><span class="severity-${event.severity.toLowerCase()}">${event.severity}</span></td>
+                            <td>${event.description}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" class="loading">No recent events</td></tr>';
+                }
+            } catch (error) {
+                document.getElementById('recent-events-tbody').innerHTML = 
+                    '<tr><td colspan="5" class="error">Error loading data</td></tr>';
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initDashboard);
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

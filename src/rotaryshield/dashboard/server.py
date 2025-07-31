@@ -35,7 +35,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 sys.path.append(str(Path(__file__).parent.parent))
 from database.manager import DatabaseManager
 from database.models import BanStatus, EventSeverity
-from utils.validators import ValidationError
+# from utils.validators import ValidationError  # Not needed for demo
 from utils.logging import SecurityLogger
 from monitoring.pattern_matcher import PatternMatcher
 

@@ -1,0 +1,12 @@
+# RotaryShield Dashboard Dependencies
+
+# Web framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+
+# Database
+sqlite3-utils==3.35.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
