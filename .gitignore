@@ -299,9 +299,9 @@ terraform/*.tfstate.backup
 # Development and planning files (not for public repo)
 .claude/
 .serena/
-phase1-summary.md
-phase2todo.md
-rotaryshield_development_plan.md
+DEV_PHASE1_SUMMARY.md
+DEV_PHASE2_TODO.md
+DEV_DEVELOPMENT_PLAN.md
 
 # =============================================
 # DOCUMENTATION BUILD
