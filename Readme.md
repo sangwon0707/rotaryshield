@@ -63,12 +63,12 @@ src/rotaryshield/
 │   ├── manager.py      # SQLite connection pooling
 │   ├── ip_manager.py   # IP ban/unban operations
 │   └── models.py       # Data model definitions
+├── cli.py              # Main CLI with Rich formatting
 ├── cli/
 │   ├── monitor.py      # rotaryshield-monitor command
 │   ├── list_blocked.py # rotaryshield-list-blocked command
 │   ├── unblock.py      # rotaryshield-unblock command
-│   ├── stats.py        # rotaryshield-stats command
-│   └── config.py       # rotaryshield-config command
+│   └── stats.py        # rotaryshield-stats command
 └── utils/
     ├── validators.py   # Comprehensive input validation
     └── logging.py      # Structured security logging
@@ -131,53 +131,40 @@ sudo systemctl start rotaryshield
 sudo systemctl enable rotaryshield
 ```
 
-### CLI Tools Suite (Phase 2 Complete)
+### CLI Tools Suite (Enhanced with Rich)
+
+**Beautiful terminal output with Rich library integration:**
 
 ```bash
-# Monitor real-time security events
-rotaryshield-monitor
+# Service Control
+rotaryshield-status             # Show service status (Rich-formatted tables)
+rotaryshield-control start      # Start service
+rotaryshield-control stop       # Stop service
+rotaryshield-control restart    # Restart service
 
-# List currently blocked IPs
-rotaryshield-list-blocked
+# IP Management
+rotaryshield-list-blocked       # List blocked IPs with expiry times
+rotaryshield-unblock 192.168.1.100  # Unblock specific IP
+rotaryshield ban 192.168.1.100 --duration 7200  # Manual IP ban
 
-# Unblock a specific IP
-rotaryshield-unblock 192.168.1.100
+# Monitoring & Analysis
+rotaryshield-monitor            # View service logs
+rotaryshield-monitor -f         # Follow logs in real-time
+rotaryshield-stats              # System statistics with colored output
+rotaryshield top-attackers      # Top 10 attacker IPs with threat levels
+rotaryshield events --limit 20  # Recent security events
+rotaryshield watch              # Live dashboard in terminal (auto-refresh)
 
-# View system statistics and performance
-rotaryshield-stats
-
-# Validate configuration
-rotaryshield-config --test
-
-# Launch real-time web dashboard
-rotaryshield-dashboard --port 8080
+# Configuration
+rotaryshield-config --test      # Validate configuration
 ```
 
-### Web Dashboard (Phase 2 Complete)
-
-**Professional real-time security monitoring interface:**
-
-```bash
-# Start dashboard on localhost
-rotaryshield-dashboard
-
-# Custom host and port
-rotaryshield-dashboard --host 0.0.0.0 --port 8443
-
-# Run in background with systemd integration
-rotaryshield-dashboard --background
-
-# Enable debug mode for development
-rotaryshield-dashboard --debug
-```
-
-**Dashboard Features:**
-- 📊 **Real-time Statistics** - Active bans, events timeline, system metrics
-- 🎯 **Attack Visualization** - Interactive charts showing attack patterns and sources  
-- 📋 **Live Data Tables** - Recently blocked IPs and security events with auto-refresh
-- 🔌 **WebSocket Integration** - Real-time updates without page refresh
-- 🔒 **Security Hardened** - Rate limiting, CSRF protection, input sanitization
-- 📱 **Responsive Design** - Works on desktop, tablet, and mobile devices
+**CLI Features:**
+- 📊 **Rich Tables** - Beautiful colored tables for all data displays
+- 🎨 **Color-Coded Output** - Severity levels and status with intuitive colors
+- 📺 **Watch Mode** - Real-time terminal dashboard with auto-refresh
+- 🔴 **Threat Levels** - Visual indicators for attack severity (LOW/MEDIUM/HIGH/CRITICAL)
+- ⏱️ **Human-Readable Times** - Durations shown as "2h 30m" instead of seconds
 
 ### Development/Testing Setup
 
@@ -262,8 +249,7 @@ Real-world deployment feedback welcome!
 - ✅ **Complete 3-Layer Security**: Detection → Throttling → Blocking fully integrated
 - ✅ **systemd Integration**: Native Linux service with 8/8 validation tests PASSED
 - ✅ **Easy Installation**: Automated `install.sh` script with security hardening
-- ✅ **Full CLI Suite**: 8 commands including real-time monitoring and web dashboard
-- ✅ **Web Dashboard**: Professional real-time interface with WebSocket updates
+- ✅ **Full CLI Suite**: Rich-enhanced commands for monitoring, analysis, and control
 - ✅ **Multi-Platform Support**: Ubuntu, CentOS, Debian, Fedora validated
 - ✅ **Performance Optimized**: 5,557 ops/sec, 16.1MB memory peak, <100ms response
 - ✅ **Security Hardened**: CAP_NET_ADMIN only, ReDoS protection, input validation
@@ -329,18 +315,18 @@ Check out our [GitHub Issues](https://github.com/sangwon0707/rotaryshield/issues
 
 - [x] **Performance optimization and scalability testing** - 5,557 ops/sec pattern matching achieved
 - [x] **Multi-platform validation across Linux distributions** - Ubuntu, CentOS, Debian, Fedora validated
-- [x] **Advanced CLI tools** - All 5 CLI commands implemented (`rotaryshield-monitor`, `list-blocked`, `unblock`, `stats`, `config`)
+- [x] **Advanced CLI tools** - Rich-enhanced CLI with 10+ commands (`status`, `monitor`, `list-blocked`, `unblock`, `stats`, `top-attackers`, `events`, `watch`, `ban`)
 - [x] **systemd Integration** - 8/8 validation tests PASSED with zero critical issues
 - [x] **Security Hardening** - CAP_NET_ADMIN/CAP_NET_RAW only, system call filtering, 100% ReDoS protection
 - [x] **Resource Management** - 64MB memory limit, 200% CPU quota, optimized lifecycle management
-- [x] **Real-time Web Dashboard** - Professional dashboard with attack visualization, WebSocket updates, responsive design
+- [x] **CLI-Only Design** - Reduced attack surface, minimal dependencies, terminal-based monitoring
 
 ### 🚀 Phase 3: Advanced Features (Future)
 
 - [ ] Integration with monitoring tools (Grafana, Prometheus)
 - [ ] Advanced threat intelligence and machine learning integration
 - [ ] Distributed security coordination across multiple nodes
-- [ ] Complete web dashboard with mobile-responsive design
+- [ ] Optional web dashboard (separate package)
 - [ ] Cloud-native deployment options (Docker Hub, Kubernetes)
 - [ ] Clustering and high-availability support
 - [ ] Academic research partnerships and security analysis features

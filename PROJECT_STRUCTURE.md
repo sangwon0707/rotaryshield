@@ -1,104 +1,117 @@
 # RotaryShield Project Structure
 
-## 📁 Current Clean Architecture
+## Current Clean Architecture (CLI-Only)
 
 ```
 RotaryShield/
-├── 🛡️  CORE APPLICATION
+├── CORE APPLICATION
 │   ├── src/rotaryshield/           # Main application code
 │   │   ├── monitoring/             # Log monitoring & pattern matching
 │   │   ├── database/               # Database management
 │   │   ├── firewall/               # Firewall integration
 │   │   ├── security/               # Security engine
+│   │   ├── cli.py                  # Main CLI with Rich formatting
+│   │   ├── cli/                    # CLI command modules
+│   │   │   ├── monitor.py          # Real-time log monitoring
+│   │   │   ├── list_blocked.py     # List blocked IPs
+│   │   │   ├── unblock.py          # Unblock IP addresses
+│   │   │   └── stats.py            # System statistics
 │   │   └── utils/                  # Utilities & validators
-│   ├── run_live_monitoring.py      # 🔥 Live monitoring service
-│   └── rotaryshield_live.db        # 📊 Main application database
+│   ├── run_live_monitoring.py      # Live monitoring service
+│   └── rotaryshield_live.db        # Main application database
 │
-├── 🌐 WEB DASHBOARD (ISOLATED)
-│   ├── dashboard/                  # Isolated web dashboard
-│   │   ├── app.py                  # Standalone dashboard server
-│   │   ├── config.py               # Dashboard configuration
-│   │   ├── templates/index.html    # Dashboard UI
-│   │   ├── data/dashboard.db       # Dashboard cache
-│   │   └── run.sh                  # Quick launcher
-│   └── 🔗 Reads from: rotaryshield_live.db
-│
-├── 🧪 TESTING & VALIDATION
+├── TESTING & VALIDATION
 │   ├── tests/                      # Unit and integration tests
 │   ├── test_*.py                   # Various test scripts
 │   ├── validate_real_functionality.py  # Real attack validation
 │   └── run_security_tests.py       # Security test suite
 │
-├── ⚙️  CONFIGURATION & SETUP
+├── CONFIGURATION & SETUP
 │   ├── configs/                    # Configuration files
 │   ├── systemd/                    # systemd integration
 │   ├── install.sh                  # Installation script
 │   └── setup.py                    # Python package setup
 │
-├── 📚 DOCUMENTATION
+├── DOCUMENTATION
 │   ├── docs/                       # Documentation
 │   ├── Readme.md                   # Main README
-│   ├── DASHBOARD_ISOLATION.md      # Dashboard isolation guide
 │   └── SECURITY_ASSESSMENT_REPORT.md
 │
-└── 📦 ARCHIVE
+└── ARCHIVE
     └── archive/                    # Archived development files
-        └── dashboard-development/  # Old dashboard iterations
 ```
 
-## 🎯 Key Components
+## Key Components
 
 ### Main Application
 - **`run_live_monitoring.py`** - Live attack detection service
 - **`rotaryshield_live.db`** - Main database with security events
 - **`src/rotaryshield/`** - Core monitoring components
 
-### Isolated Dashboard  
-- **`dashboard/app.py`** - Standalone web server (port 8080)
-- **`dashboard/data/dashboard.db`** - Dashboard cache
-- **Reads from**: Main application database
-- **Independent**: Can run separately from monitoring
+### CLI Commands (Rich-Enhanced)
+| Command | Description |
+|---------|-------------|
+| `rotaryshield-status` | Service status with colored tables |
+| `rotaryshield-control` | Start/stop/restart service |
+| `rotaryshield-monitor` | Real-time log viewing |
+| `rotaryshield-list-blocked` | Blocked IPs with expiry times |
+| `rotaryshield-unblock` | Unblock specific IP |
+| `rotaryshield-stats` | System statistics |
+| `rotaryshield top-attackers` | Top attacker IPs with threat levels |
+| `rotaryshield events` | Recent security events |
+| `rotaryshield watch` | Live terminal dashboard |
+| `rotaryshield ban` | Manual IP banning |
 
 ### Testing
 - **Real attack validation** - Proves system works with authentic attacks
 - **Security test suite** - Comprehensive security testing
 - **Platform compatibility** - Tests across different systems
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Start Main Monitoring
 ```bash
+sudo systemctl start rotaryshield
+# or directly:
 python run_live_monitoring.py
 ```
 
-### 2. Start Web Dashboard  
+### 2. Monitor with CLI
 ```bash
-cd dashboard && python app.py
+# Check status
+rotaryshield-status
+
+# View live stats
+rotaryshield watch
+
+# Monitor logs
+rotaryshield-monitor -f
 ```
 
-### 3. Access Dashboard
-- **URL**: http://127.0.0.1:8080
-- **Features**: Real-time attack monitoring, IP bans, security events
+### 3. View Statistics
+```bash
+# System stats with colored output
+rotaryshield-stats
 
-## 🧹 Cleanup Completed
+# Top attackers with threat levels
+rotaryshield top-attackers
 
-The following development files have been archived to keep the project root clean:
+# Recent security events
+rotaryshield events --limit 20
+```
 
-### Moved to `archive/dashboard-development/`
-- Old dashboard implementations
-- Demo databases and setup scripts  
-- Development logs and test files
-- Legacy database files
+## Design Philosophy
 
-### Remaining in Root
-- ✅ **Active monitoring service**
-- ✅ **Live database** 
-- ✅ **Test and validation scripts**
-- ✅ **Core documentation**
-- ✅ **Installation and setup files**
+### CLI-Only Approach Benefits
+- **Reduced Attack Surface** - No web server to exploit
+- **Minimal Dependencies** - Only Rich library for formatting
+- **Resource Efficient** - No Flask/SocketIO overhead
+- **Secure by Default** - No network ports for dashboard
+- **Terminal Native** - Works over SSH, no browser needed
 
-This structure provides clear separation between:
-- **Production code** (main monitoring)
-- **User interface** (isolated dashboard)  
-- **Testing** (validation scripts)
-- **Archive** (development history)
+### Rich Library Features
+- Beautiful colored tables
+- Real-time watch mode with auto-refresh
+- Progress indicators and spinners
+- Severity-based color coding
+- Human-readable time formatting

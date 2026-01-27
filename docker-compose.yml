@@ -1,0 +1,70 @@
+services:
+  rotaryshield:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rotaryshield-test
+    hostname: rotaryshield-dev
+
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+
+    # Required for iptables/firewall testing
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    # Mount volumes for persistence and live editing
+    volumes:
+      # Persistent database storage
+      - rotaryshield-data:/var/lib/rotaryshield
+      # Persistent logs
+      - rotaryshield-logs:/var/log/rotaryshield
+
+    # Environment variables
+    environment:
+      - TERM=xterm-256color
+      - PYTHONPATH=/app/src
+      - OLLAMA_HOST=ollama:11434
+
+    # Wait for ollama to be ready
+    depends_on:
+      - ollama
+
+    # Network settings
+    networks:
+      - rotaryshield-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rotaryshield-ollama
+    hostname: ollama
+
+    # Persistent model storage
+    volumes:
+      - ollama-models:/root/.ollama
+
+    # Expose port for API
+    ports:
+      - "11434:11434"
+
+    # Network settings
+    networks:
+      - rotaryshield-net
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  rotaryshield-data:
+  rotaryshield-logs:
+  ollama-models:
+
+networks:
+  rotaryshield-net:
+    driver: bridge

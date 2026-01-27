@@ -96,15 +96,15 @@ setup(
     entry_points={
         "console_scripts": [
             "rotaryshield=rotaryshield.main:main",
-            "rotaryshield-config=rotaryshield.cli:config_main",
-            "rotaryshield-status=rotaryshield.cli:status_main",
-            "rotaryshield-control=rotaryshield.cli:control_main",
+            "rotaryshield-config=rotaryshield.cli_main:config_main",
+            "rotaryshield-status=rotaryshield.cli_main:status_main",
+            "rotaryshield-control=rotaryshield.cli_main:control_main",
             # Phase 2 CLI Tools - Complete Suite
-            "rotaryshield-monitor=rotaryshield.cli.monitor:main",
-            "rotaryshield-list-blocked=rotaryshield.cli.list_blocked:main",
-            "rotaryshield-unblock=rotaryshield.cli.unblock:main",
-            "rotaryshield-stats=rotaryshield.cli.stats:main",
-            "rotaryshield-dashboard=rotaryshield.cli.dashboard:main",
+            "rotaryshield-monitor=rotaryshield.cli_main:monitor_main",
+            "rotaryshield-list-blocked=rotaryshield.cli_main:list_blocked_main",
+            "rotaryshield-unblock=rotaryshield.cli_main:unblock_main",
+            "rotaryshield-stats=rotaryshield.cli_main:stats_main",
+            "rotaryshield-tui=rotaryshield.tui:main",
         ],
     },
     
