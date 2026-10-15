@@ -102,9 +102,11 @@ class UFWAdapter(FirewallAdapter):
             
             # Parse UFW status
             if "Status: inactive" in stdout:
-                self.logger.warning("UFW is inactive. RotaryShield rules will be added but not enforced until UFW is enabled.")
+                raise FirewallError("UFW is inactive; refusing to report unenforced bans")
             elif "Status: active" in stdout:
                 self.logger.info("UFW is active and ready")
+            else:
+                raise FirewallError("Could not confirm UFW is active")
             
             # Verify we can add/remove rules (test with a safe operation)
             test_ip = "192.0.2.1"  # RFC5737 test address

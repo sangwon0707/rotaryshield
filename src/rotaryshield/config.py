@@ -22,6 +22,14 @@ from dataclasses import dataclass, field
 import re
 
 
+def _under_directories(path, directories):
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return False
+    resolved = os.path.realpath(path)
+    return any(os.path.commonpath([resolved, os.path.realpath(directory)]) == os.path.realpath(directory)
+               for directory in directories)
+
+
 class ConfigurationError(Exception):
     """Custom exception for configuration-related errors."""
     pass
@@ -61,6 +69,12 @@ class DetectionConfig:
         
         if not isinstance(self.time_window, int) or self.time_window < 60 or self.time_window > 86400:
             raise ConfigurationError("time_window must be an integer between 60 and 86400 seconds")
+        if self.ban_threshold < self.max_retry:
+            raise ConfigurationError("ban_threshold must be at least max_retry")
+        if not isinstance(self.log_files, list) or not self.log_files:
+            raise ConfigurationError("At least one log file is required")
+        if not isinstance(self.patterns, dict) or not self.patterns:
+            raise ConfigurationError("At least one detection pattern is required")
         
         # Validate log file paths for security
         for log_file in self.log_files:
@@ -83,7 +97,7 @@ class DetectionConfig:
         
         # Only allow absolute paths in specific directories
         allowed_dirs = ['/var/log', '/opt/rotaryshield/logs', '/tmp/rotaryshield']
-        return any(normalized.startswith(allowed_dir) for allowed_dir in allowed_dirs)
+        return _under_directories(path, allowed_dirs)
 
 
 @dataclass
@@ -120,7 +134,7 @@ class BanConfig:
     honeypot_port: int = 2222
     notification: bool = True
     whitelist_ips: List[str] = field(default_factory=lambda: ['127.0.0.1', '::1'])
-    firewall_backend: str = 'iptables'
+    firewall_backend: str = 'auto'
     
     def validate(self) -> None:
         """Validate ban configuration parameters."""
@@ -136,8 +150,8 @@ class BanConfig:
         if not isinstance(self.honeypot_port, int) or self.honeypot_port < 1024 or self.honeypot_port > 65535:
             raise ConfigurationError("honeypot_port must be an integer between 1024 and 65535")
         
-        if self.firewall_backend not in ['iptables', 'firewalld', 'ufw']:
-            raise ConfigurationError("firewall_backend must be one of: iptables, firewalld, ufw")
+        if self.firewall_backend not in ['auto', 'iptables', 'firewalld', 'ufw']:
+            raise ConfigurationError("firewall_backend must be one of: auto, iptables, firewalld, ufw")
         
         # Validate whitelist IPs
         for ip in self.whitelist_ips:
@@ -148,7 +162,7 @@ class BanConfig:
         """Validate IP address format."""
         import ipaddress
         try:
-            ipaddress.ip_address(ip)
+            ipaddress.ip_network(ip, strict=False)
             return True
         except ValueError:
             return False
@@ -182,7 +196,7 @@ class DatabaseConfig:
             return False
         
         allowed_dirs = ['/var/lib/rotaryshield', '/opt/rotaryshield/data', '/tmp/rotaryshield']
-        return any(normalized.startswith(allowed_dir) for allowed_dir in allowed_dirs)
+        return _under_directories(path, allowed_dirs)
 
 
 @dataclass
@@ -265,14 +279,14 @@ class RotaryShieldConfig:
             return False
         
         allowed_dirs = ['/var/log', '/var/run', '/opt/rotaryshield', '/tmp/rotaryshield']
-        return any(normalized.startswith(allowed_dir) for allowed_dir in allowed_dirs)
+        return _under_directories(path, allowed_dirs + ['/run/rotaryshield'])
 
 
 class ConfigManager:
     """Secure configuration manager with validation and integrity checks."""
     
-    def __init__(self, config_path: str = '/etc/rotaryshield/config.yml'):
-        self.config_path = config_path
+    def __init__(self, config_path: Optional[str] = None):
+        self.config_path = config_path or os.environ.get('ROTARYSHIELD_CONFIG', '/etc/rotaryshield/config.yml')
         self.logger = logging.getLogger(__name__)
         self._config: Optional[RotaryShieldConfig] = None
         self._config_hash: Optional[str] = None
@@ -304,10 +318,7 @@ class ConfigManager:
             return self._config
             
         except FileNotFoundError:
-            self.logger.warning(f"Configuration file not found: {self.config_path}, using defaults")
-            self._config = RotaryShieldConfig()
-            self._config.validate()
-            return self._config
+            raise ConfigurationError(f"Configuration file not found: {self.config_path}")
             
         except (yaml.YAMLError, ConfigurationError, SecurityError) as e:
             self.logger.error(f"Configuration error: {e}")
@@ -330,7 +341,7 @@ class ConfigManager:
             raise SecurityError(f"Configuration file {self.config_path} has insecure permissions")
         
         # Check ownership (should be owned by root or rotaryshield user)
-        if stat_info.st_uid != 0:  # Not root
+        if stat_info.st_uid not in (0, os.getuid()):
             import pwd
             try:
                 owner = pwd.getpwuid(stat_info.st_uid).pw_name
@@ -342,13 +353,14 @@ class ConfigManager:
     def _build_config(self, config_data: Dict[str, Any]) -> RotaryShieldConfig:
         """Build configuration object from dictionary data."""
         config = RotaryShieldConfig()
-        
+
         # Detection configuration
         if 'detection' in config_data:
             detection_data = config_data['detection']
+            thresholds = detection_data.get('thresholds', {})
             config.detection = DetectionConfig(
-                max_retry=detection_data.get('max_retry', config.detection.max_retry),
-                ban_threshold=detection_data.get('ban_threshold', config.detection.ban_threshold),
+                max_retry=detection_data.get('max_retry', thresholds.get('warning', config.detection.max_retry)),
+                ban_threshold=detection_data.get('ban_threshold', thresholds.get('blocking', config.detection.ban_threshold)),
                 time_window=detection_data.get('time_window', config.detection.time_window),
                 log_files=detection_data.get('log_files', config.detection.log_files),
                 patterns=detection_data.get('patterns', config.detection.patterns)
@@ -366,8 +378,10 @@ class ConfigManager:
             )
         
         # Ban configuration
-        if 'ban' in config_data:
-            ban_data = config_data['ban']
+        if 'ban' in config_data and 'blocking' in config_data:
+            raise ConfigurationError("Use only one of 'ban' or 'blocking', not both")
+        if 'ban' in config_data or 'blocking' in config_data:
+            ban_data = config_data.get('ban', config_data.get('blocking'))
             config.ban = BanConfig(
                 ban_time=ban_data.get('ban_time', config.ban.ban_time),
                 max_ban_time=ban_data.get('max_ban_time', config.ban.max_ban_time),
@@ -376,7 +390,7 @@ class ConfigManager:
                 honeypot_port=ban_data.get('honeypot_port', config.ban.honeypot_port),
                 notification=ban_data.get('notification', config.ban.notification),
                 whitelist_ips=ban_data.get('whitelist_ips', config.ban.whitelist_ips),
-                firewall_backend=ban_data.get('firewall_backend', config.ban.firewall_backend)
+                firewall_backend=ban_data.get('firewall_backend', ban_data.get('firewall', config.ban.firewall_backend))
             )
         
         # Database configuration

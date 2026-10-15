@@ -60,7 +60,7 @@ class RotaryShieldDaemon:
         Args:
             config_path: Path to configuration file
         """
-        self.config_path = config_path or "/etc/rotaryshield/config.yml"
+        self.config_path = ConfigManager(config_path).config_path
         self.security_engine: Optional[SecurityEngine] = None
         self.logger = logging.getLogger(__name__)
         
@@ -78,8 +78,7 @@ class RotaryShieldDaemon:
             self.logger.info(f"Received signal {signal_name} ({signum}), initiating shutdown")
             self._shutdown_requested = True
             
-            if self.security_engine:
-                self.security_engine.shutdown()
+            # Cleanup runs from the daemon loop, outside the signal handler.
         
         # Register handlers for common termination signals
         signal.signal(signal.SIGTERM, signal_handler)
@@ -89,27 +88,8 @@ class RotaryShieldDaemon:
     def _handle_reload(self, signum, frame):
         """Handle configuration reload signal."""
         self.logger.info("Received SIGHUP, reloading configuration")
-        try:
-            if self.security_engine:
-                # Reload configuration
-                config_manager = ConfigManager(self.config_path)
-                new_config = config_manager.load_config()
-                
-                # TODO: Implement hot configuration reload
-                self.logger.info("Configuration reloaded successfully")
-                
-                # Log audit event
-                audit_logger = get_audit_logger()
-                if audit_logger:
-                    audit_logger.log_config_event(
-                        action="config_reloaded",
-                        user_id="system",
-                        config_section="all",
-                        result="success"
-                    )
-        except Exception as e:
-            self.logger.error(f"Failed to reload configuration: {e}")
-    
+        self.logger.warning("Live reload is unavailable; use systemctl restart rotaryshield to apply configuration")
+
     def _setup_directories(self) -> None:
         """Ensure required directories exist with proper permissions."""
         directories = [
@@ -238,7 +218,7 @@ class RotaryShieldDaemon:
         try:
             while not self._shutdown_requested:
                 # Sleep with periodic wake-ups for monitoring
-                time.sleep(10)
+                time.sleep(0.2)
                 
                 # Periodic statistics logging
                 current_time = time.time()
@@ -332,14 +312,14 @@ For more information, visit: https://rotaryshield.readthedocs.io/
         "--log-level", "-l",
         type=str,
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
+        default=None,
         help="Set logging level (default: INFO)"
     )
     
     parser.add_argument(
         "--log-file",
         type=str,
-        default="/var/log/rotaryshield/rotaryshield.log",
+        default=None,
         help="Log file path (default: /var/log/rotaryshield/rotaryshield.log)"
     )
     
@@ -388,6 +368,9 @@ def test_configuration(config_path: Optional[str]) -> bool:
         
         print(f"✓ Valid patterns: {valid_patterns}/{len(config.detection.patterns)}")
         
+        if valid_patterns != len(config.detection.patterns) or not valid_patterns:
+            print("Configuration validation failed: one or more patterns were rejected")
+            return False
         print("\nConfiguration test completed successfully!")
         return True
         
@@ -399,11 +382,18 @@ def test_configuration(config_path: Optional[str]) -> bool:
 def main():
     """Main entry point for RotaryShield daemon."""
     args = parse_arguments()
-    
+    if args.test_config:
+        return 0 if test_configuration(args.config) else 1
+    try:
+        config = ConfigManager(args.config).load_config()
+    except Exception as error:
+        print(f"Configuration error: {error}", file=sys.stderr)
+        return 1
+
     # Setup logging
     setup_logging(
-        log_level=args.log_level,
-        log_file=args.log_file if not args.daemon else args.log_file,
+        log_level=args.log_level or config.log_level,
+        log_file=args.log_file or config.log_file,
         enable_json=False,
         enable_audit=True
     )

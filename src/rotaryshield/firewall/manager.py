@@ -72,7 +72,7 @@ class FirewallManager:
             preferred_backend: Preferred firewall backend name, or None for auto-detection
         """
         self.logger = logging.getLogger(__name__)
-        self.preferred_backend = preferred_backend
+        self.preferred_backend = None if preferred_backend == "auto" else preferred_backend
         
         # Thread safety
         self._lock = threading.RLock()
@@ -178,8 +178,8 @@ class FirewallManager:
                 
             except Exception as e:
                 self.logger.error(f"Failed to initialize {selected_backend.name} adapter: {e}")
-                # Try fallback adapters
-                if not self._try_fallback_adapters(available_systems, selected_backend.name):
+                # Do not silently move bans to another firewall backend.
+                if self.preferred_backend or not self._try_fallback_adapters(available_systems, selected_backend.name):
                     raise FirewallError(f"Failed to initialize any firewall adapter: {e}")
     
     def _select_best_backend(self, available_systems: Dict[str, bool]) -> Optional[FirewallBackend]:
@@ -205,6 +205,8 @@ class FirewallManager:
                 self.logger.info(f"Using preferred firewall backend: {self.preferred_backend}")
                 return backend
         
+        if self.preferred_backend:
+            raise FirewallError("Configured firewall backend is unavailable: " + self.preferred_backend)
         # Otherwise, select by priority
         for backend in sorted(self.FIREWALL_BACKENDS, key=lambda b: b.priority, reverse=True):
             if backend.name in available_systems and available_systems[backend.name]:
@@ -371,20 +373,8 @@ class FirewallManager:
                     f"({self._backend_name or 'unknown'}): {e}"
                 )
                 
-                # Try to reinitialize if adapter seems broken
-                if isinstance(e, (FirewallOperationError, FirewallError)):
-                    try:
-                        self.logger.info("Attempting to reinitialize firewall manager after error")
-                        self.initialize()
-                        
-                        # Retry operation once with new adapter
-                        result = operation_func(self._adapter)
-                        self.logger.info(f"Operation succeeded after reinitialization: {operation_name}")
-                        return result
-                        
-                    except Exception as reinit_error:
-                        self.logger.error(f"Reinitialization failed: {reinit_error}")
-                
+                # Preserve the selected backend. The caller reports failure and
+                # reconciliation retries; switching here could orphan existing rules.
                 return default_return
     
     def get_current_backend(self) -> Optional[str]:

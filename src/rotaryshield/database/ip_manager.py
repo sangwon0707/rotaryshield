@@ -264,7 +264,7 @@ class IPManager:
                     self.logger.warning(f"No ban record found for IP: {normalized_ip}")
                     return True  # Consider it successful if already not banned
                 
-                if not ban_record.is_active():
+                if ban_record.status != BanStatus.ACTIVE:
                     self.logger.info(f"IP {normalized_ip} is already not active")
                     return True
                 
@@ -463,8 +463,7 @@ class IPManager:
             update_query = '''
                 UPDATE ip_bans 
                 SET status = 'expired', updated_at = ?
-                WHERE status = 'active' AND expires_at <= ?
-                LIMIT ?
+                WHERE id IN (SELECT id FROM ip_bans WHERE status = 'active' AND expires_at <= ? LIMIT ?)
             '''
             
             result = self.db_manager.execute_query(
@@ -564,7 +563,7 @@ class IPManager:
         """Insert ban record into database."""
         try:
             insert_query = '''
-                INSERT INTO ip_bans (
+                INSERT OR REPLACE INTO ip_bans (
                     ip_address, ban_reason, ban_duration, created_at, expires_at,
                     updated_at, status, ban_count, last_offense_type, created_by
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

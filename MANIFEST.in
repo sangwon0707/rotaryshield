@@ -2,7 +2,7 @@
 # Specifies additional files to include in the distribution package
 
 # Documentation
-include README.md
+include Readme.md
 include LICENSE
 include CHANGELOG.md
 include SECURITY.md

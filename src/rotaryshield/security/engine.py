@@ -25,12 +25,14 @@ import os
 import sys
 import psutil
 from typing import Dict, List, Optional, Set, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from concurrent.futures import ThreadPoolExecutor, Future
 from threading import RLock, Event as ThreadEvent
 import queue
 import weakref
+import json
 
+from .bans import BanController, select_backend, remember_backend
 from .events import SecurityEvent, EventType, ThreatLevel, ActionType, SecurityEventFactory
 from ..config import ConfigManager, RotaryShieldConfig
 from ..monitoring import LogMonitor, LogEvent
@@ -109,6 +111,9 @@ class SecurityEngine:
         # Event processing
         self.event_queue: queue.Queue = queue.Queue(maxsize=10000)
         self.executor: Optional[ThreadPoolExecutor] = None
+        self._event_threads = []
+        self.ban_controller = None
+        self._event_lock = RLock()
         self.event_handlers: Dict[EventType, List[Callable]] = {}
         
         # Security metrics and monitoring
@@ -125,7 +130,7 @@ class SecurityEngine:
         self._setup_logging()
         
         # Register signal handlers for graceful shutdown
-        self._register_signal_handlers()
+        # The daemon owns process signals; embedding an engine must not replace them.
         
         self.logger.info("SecurityEngine initialized")
     
@@ -190,8 +195,10 @@ class SecurityEngine:
                 self.logger.info("IP manager initialized")
                 
                 # Initialize firewall manager
-                self.firewall_manager = FirewallManager(self.config.ban.firewall_backend)
+                backend = select_backend(self.database_manager, self.config.ban.firewall_backend)
+                self.firewall_manager = FirewallManager(backend)
                 self.firewall_manager.initialize()
+                remember_backend(self.database_manager, self.firewall_manager.get_current_backend())
                 self.logger.info("Firewall manager initialized")
                 
                 # Initialize log monitor
@@ -200,6 +207,9 @@ class SecurityEngine:
                     patterns=self.config.detection.patterns
                 )
                 self.log_monitor.set_event_callback(self._handle_log_event)
+                self.log_monitor.initialize()
+                self.ban_controller = BanController(
+                    self.database_manager, self.firewall_manager, self.config.ban.whitelist_ips)
                 self.logger.info("Log monitor initialized")
                 
                 # Initialize thread pool for event processing
@@ -215,7 +225,7 @@ class SecurityEngine:
                 
                 # Load existing banned IPs from database
                 self._load_existing_bans()
-                
+
                 self._is_initialized = True
                 self.logger.info("SecurityEngine initialization completed successfully")
                 
@@ -237,13 +247,9 @@ class SecurityEngine:
     
     def _load_existing_bans(self) -> None:
         """Load existing banned IPs from database."""
-        try:
-            banned_ips = self.ip_manager.get_active_bans()
-            self._banned_ips.update(banned_ips)
-            self.logger.info(f"Loaded {len(banned_ips)} existing banned IPs")
-        except Exception as e:
-            self.logger.error(f"Failed to load existing bans: {e}")
-    
+        self._banned_ips = self.ban_controller.reconcile(restore=True)
+        self.logger.info("Reconciled %d existing bans", len(self._banned_ips))
+
     def start(self) -> None:
         """
         Start the security engine and all monitoring components.
@@ -259,6 +265,7 @@ class SecurityEngine:
             
             try:
                 self.logger.info("Starting SecurityEngine...")
+                self._shutdown_event.clear()
                 
                 # Start performance monitoring
                 self._start_performance_monitor()
@@ -276,7 +283,7 @@ class SecurityEngine:
                 
             except Exception as e:
                 self.logger.error(f"Failed to start SecurityEngine: {e}")
-                self._cleanup_components()
+                self.shutdown()
                 raise SecurityEngineError(f"Start failed: {e}")
     
     def _start_performance_monitor(self) -> None:
@@ -286,11 +293,12 @@ class SecurityEngine:
                 try:
                     self._update_performance_metrics()
                     self._check_resource_limits()
+                    self._maintain_bans()
                 except Exception as e:
                     self.logger.error(f"Performance monitoring error: {e}")
                 
                 # Wait for next update or shutdown signal
-                self._shutdown_event.wait(timeout=30.0)
+                self._shutdown_event.wait(timeout=5.0)
         
         self._performance_monitor_thread = threading.Thread(
             target=monitor_performance,
@@ -302,27 +310,39 @@ class SecurityEngine:
     def _start_event_processor(self) -> None:
         """Start event processing threads."""
         def process_events():
-            while not self._shutdown_event.is_set():
+            # Drain accepted events before exiting, including during shutdown.
+            while not self._shutdown_event.is_set() or not self.event_queue.empty():
                 try:
-                    # Process events from queue with timeout
-                    try:
-                        event = self.event_queue.get(timeout=1.0)
-                        self._process_security_event(event)
-                        self.event_queue.task_done()
-                    except queue.Empty:
-                        continue
-                except Exception as e:
-                    self.logger.error(f"Event processing error: {e}")
-        
-        # Start multiple event processor threads
-        for i in range(2):  # Conservative number of processors
-            thread = threading.Thread(
-                target=process_events,
-                name=f"rotaryshield-event-processor-{i}",
-                daemon=True
-            )
-            thread.start()
-    
+                    event = self.event_queue.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                try:
+                    self._process_security_event(event)
+                except Exception:
+                    self.logger.exception("Event processing failed")
+                finally:
+                    self.event_queue.task_done()
+
+        thread = threading.Thread(target=process_events, name="rotaryshield-events", daemon=True)
+        self._event_threads = [thread]
+        thread.start()
+
+    def _maintain_bans(self):
+        with self._event_lock:
+            active = self.ban_controller.reconcile()
+            for address in self._banned_ips - active:
+                self._active_threats.pop(address, None)
+                self._throttled_ips.pop(address, None)
+            self._banned_ips = active
+            cutoff = time.time() - self.config.detection.time_window
+            for address in list(self._active_threats):
+                events = [event for event in self._active_threats[address] if event.timestamp >= cutoff]
+                if events:
+                    self._active_threats[address] = events
+                else:
+                    self._active_threats.pop(address, None)
+                    self._throttled_ips.pop(address, None)
+
     def _update_performance_metrics(self) -> None:
         """Update performance metrics for monitoring."""
         try:
@@ -477,6 +497,8 @@ class SecurityEngine:
             event: SecurityEvent to process
         """
         try:
+            if self._shutdown_event.is_set():
+                return
             # Add to event queue for processing
             self.event_queue.put(event, timeout=1.0)
             
@@ -487,6 +509,10 @@ class SecurityEngine:
             self.logger.error(f"Failed to submit event: {e}")
     
     def _process_security_event(self, event: SecurityEvent) -> None:
+        with self._event_lock:
+            self._process_event_locked(event)
+
+    def _process_event_locked(self, event: SecurityEvent) -> None:
         """Process security event through 3-layer system."""
         start_time = time.time()
         
@@ -495,8 +521,20 @@ class SecurityEngine:
             with self._metrics_lock:
                 self.metrics.events_processed += 1
             
+            if event.source_ip and self.ban_controller.is_whitelisted(event.source_ip):
+                return
+            # Clear manual removals/expiry before considering a new decision.
+            if event.source_ip in self._banned_ips:
+                rows = self.database_manager.execute_query(
+                    "SELECT status, expires_at FROM ip_bans WHERE ip_address = ?", (event.source_ip,))
+                if rows and rows['status'] == 'active' and rows['expires_at'] > time.time():
+                    return
+                self._banned_ips.discard(event.source_ip)
+                self._active_threats.pop(event.source_ip, None)
             # Layer 1: Detection and Classification
             self._layer1_detection(event)
+            if event.source_ip:
+                event = replace(event, threat_level=self._assess_threat_level(event.event_type, event.source_ip))
             
             # Layer 2: Throttling Decision
             actions = self._layer2_throttling(event)
@@ -513,7 +551,16 @@ class SecurityEngine:
             # Execute registered handlers
             self._execute_event_handlers(event)
             
-            # Log event for audit trail
+            # Persist the result, including actions that actually succeeded.
+            self.database_manager.execute_query(
+                """INSERT INTO security_events
+                (event_id, event_type, severity, timestamp, processed_at, source_ip,
+                 description, raw_log_data, pattern_matched, actions_taken, detection_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (event.event_id, event.event_type.value, event.threat_level.name.lower(),
+                 event.timestamp, time.time(), event.source_ip, event.message,
+                 event.raw_log_line, event.pattern_matched,
+                 json.dumps([action.value for action in event.actions_taken]), 'log_monitor'))
             self._log_security_event(event)
             
             # Update processing time metrics
@@ -523,17 +570,7 @@ class SecurityEngine:
             
         except Exception as e:
             self.logger.error(f"Error processing security event {event.event_id}: {e}")
-            # Create system error event
-            error_event = SecurityEventFactory.create_system_error(
-                f"Event processing failed: {e}",
-                {"original_event_id": event.event_id}
-            )
-            # Submit error event (avoid recursion with simple queue put)
-            try:
-                self.event_queue.put_nowait(error_event)
-            except queue.Full:
-                pass  # Prevent infinite recursion
-    
+
     def _layer1_detection(self, event: SecurityEvent) -> None:
         """Layer 1: Detection and threat tracking."""
         if not event.source_ip:
@@ -561,69 +598,34 @@ class SecurityEngine:
     
     def _layer2_throttling(self, event: SecurityEvent) -> List[ActionType]:
         """Layer 2: Throttling and rate limiting."""
-        actions = []
-        
-        if not event.source_ip or event.threat_level < ThreatLevel.MEDIUM:
-            return actions
-        
-        # Check if IP should be throttled
-        event_count = len(self._active_threats.get(event.source_ip, []))
-        
-        if event_count >= self.config.detection.max_retry:
-            # Apply throttling
-            self._throttled_ips[event.source_ip] = time.time()
-            
-            # Apply service-specific throttling
-            if event.event_type == EventType.SSH_FAILED_LOGIN:
-                actions.append(ActionType.THROTTLE_SSH)
-            elif event.event_type in [EventType.HTTP_BRUTE_FORCE]:
-                actions.append(ActionType.THROTTLE_HTTP)
-            else:
-                actions.append(ActionType.RATE_LIMIT)
-            
-            with self._metrics_lock:
-                self.metrics.ips_throttled += 1
-        
-        return actions
-    
-    def _layer3_blocking(self, event: SecurityEvent) -> List[ActionType]:
-        """Layer 3: Blocking and banning decisions."""
-        actions = []
-        
+        # No backend currently enforces service-level throttling. Emit a warning
+        # once per observation window without claiming to have limited traffic.
         if not event.source_ip:
-            return actions
-        
-        # Check if IP should be banned
-        event_count = len(self._active_threats.get(event.source_ip, []))
-        
-        if (event_count >= self.config.detection.ban_threshold or 
-            event.threat_level >= ThreatLevel.CRITICAL):
-            
-            # Check whitelist
-            if event.source_ip not in self.config.ban.whitelist_ips:
-                # Apply ban
-                try:
-                    self.ip_manager.ban_ip(
-                        event.source_ip,
-                        self.config.ban.ban_time,
-                        f"Automated ban: {event.event_type.value}"
-                    )
-                    
-                    self.firewall_manager.block_ip(event.source_ip)
-                    self._banned_ips.add(event.source_ip)
-                    
-                    actions.append(ActionType.TEMPORARY_BAN)
-                    
-                    with self._metrics_lock:
-                        self.metrics.ips_banned += 1
-                    
-                    self.logger.warning(f"Banned IP {event.source_ip} due to {event.event_type.value}")
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to ban IP {event.source_ip}: {e}")
-        
-        return actions
-    
+            return []
+        count = len(self._active_threats.get(event.source_ip, []))
+        if count >= self.config.detection.max_retry and event.source_ip not in self._throttled_ips:
+            self._throttled_ips[event.source_ip] = time.time()
+            self.logger.warning("Repeated failures from %s; observing until ban threshold (throttling is unavailable)",
+                                event.source_ip)
+        return []
+
+    def _layer3_blocking(self, event: SecurityEvent) -> List[ActionType]:
+        if not event.source_ip or event.source_ip in self._banned_ips:
+            return []
+        count = len(self._active_threats.get(event.source_ip, []))
+        if count < self.config.detection.ban_threshold and event.threat_level < ThreatLevel.CRITICAL:
+            return []
+        try:
+            if self.ban_controller.ban(event.source_ip, self.config.ban.ban_time,
+                                       "Automated ban: " + event.event_type.value):
+                self._banned_ips.add(event.source_ip)
+                with self._metrics_lock:
+                    self.metrics.ips_banned += 1
+                return [ActionType.TEMPORARY_BAN]
+        except Exception:
+            self.logger.exception("Failed to enforce ban for %s", event.source_ip)
+        return []
+
     def _execute_event_handlers(self, event: SecurityEvent) -> None:
         """Execute registered event handlers."""
         handlers = self.event_handlers.get(event.event_type, [])
@@ -716,90 +718,58 @@ class SecurityEngine:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            # Validate IP address
-            import ipaddress
-            ipaddress.ip_address(ip_address)
-            
-            # Remove from firewall
-            self.firewall_manager.unblock_ip(ip_address)
-            
-            # Remove from database
-            self.ip_manager.unban_ip(ip_address, reason)
-            
-            # Remove from internal tracking
-            self._banned_ips.discard(ip_address)
-            if ip_address in self._active_threats:
-                del self._active_threats[ip_address]
-            if ip_address in self._throttled_ips:
-                del self._throttled_ips[ip_address]
-            
-            self.logger.info(f"IP {ip_address} unbanned: {reason}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to unban IP {ip_address}: {e}")
-            return False
-    
+        with self._event_lock:
+            try:
+                import ipaddress
+                address = str(ipaddress.ip_address(ip_address))
+                if not self.ban_controller.unban(address, reason):
+                    return False
+                self._banned_ips.discard(address)
+                self._active_threats.pop(address, None)
+                self._throttled_ips.pop(address, None)
+                return True
+            except Exception:
+                self.logger.exception("Failed to unban %s", ip_address)
+                return False
+
     def is_running(self) -> bool:
         """Check if security engine is running."""
         with self._state_lock:
             return self._is_running
     
     def shutdown(self) -> None:
-        """
-        Gracefully shutdown security engine and all components.
-        
-        This method ensures all components are properly stopped and
-        resources are cleaned up.
-        """
+        # Never hold the state/event lock while joining workers that need it.
+        # Stop and join producers before asking the consumer to drain and exit.
+        if self.log_monitor:
+            self.log_monitor.cleanup()
+        self._shutdown_event.set()
+        for thread in self._event_threads:
+            if thread is not threading.current_thread():
+                thread.join()
+        if self._performance_monitor_thread and self._performance_monitor_thread is not threading.current_thread():
+            self._performance_monitor_thread.join()
+        self._cleanup_components()
         with self._state_lock:
-            if not self._is_running:
-                return
-            
-            self.logger.info("Shutting down SecurityEngine...")
-            
-            # Signal shutdown to all threads
-            self._shutdown_event.set()
-            
-            # Stop components
-            try:
-                if self.log_monitor:
-                    self.log_monitor.stop()
-                
-                # Wait for event queue to empty
-                self.event_queue.join()
-                
-                # Shutdown thread pool
-                if self.executor:
-                    self.executor.shutdown(wait=True, timeout=10)
-                
-                # Wait for performance monitor thread
-                if self._performance_monitor_thread and self._performance_monitor_thread.is_alive():
-                    self._performance_monitor_thread.join(timeout=5)
-                
-            except Exception as e:
-                self.logger.error(f"Error during shutdown: {e}")
-            
-            finally:
-                self._cleanup_components()
-                self._is_running = False
-                self.logger.info("SecurityEngine shutdown completed")
-    
+            self._is_running = False
+            self._is_initialized = False
+        self.logger.info("SecurityEngine shutdown completed")
+
     def _cleanup_components(self) -> None:
-        """Clean up all components and resources."""
-        try:
-            if self.database_manager:
-                self.database_manager.close()
-            
-            # Clear internal state
-            self._active_threats.clear()
-            self._throttled_ips.clear()
-            self._banned_ips.clear()
-            
-        except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
-    
+        for component in (self.log_monitor, self.ip_manager, self.firewall_manager):
+            if component:
+                try:
+                    component.cleanup()
+                except Exception:
+                    self.logger.exception("Component cleanup failed")
+        if self.executor:
+            self.executor.shutdown(wait=True)
+            self.executor = None
+        if self.database_manager:
+            self.database_manager.close()
+        self._active_threats.clear()
+        self._throttled_ips.clear()
+        self._banned_ips.clear()
+
     def __enter__(self):
         """Context manager entry."""
         self.initialize()

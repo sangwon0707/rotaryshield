@@ -176,14 +176,15 @@ class LogFileWatcher:
         except OSError as e:
             raise LogMonitorError(f"Cannot access file {self.file_path}: {e}")
     
-    def _open_file(self) -> None:
+    def _open_file(self, from_start: bool = False) -> None:
         """Open log file for reading."""
         try:
             self._file_handle = open(self.file_path, 'r', encoding='utf-8', errors='replace')
             
             # Seek to end of file for tail functionality
-            self._file_handle.seek(0, 2)  # Seek to end
+            self._file_handle.seek(0, 0 if from_start else 2)
             self._file_size = self._file_handle.tell()
+            self._file_inode = os.fstat(self._file_handle.fileno()).st_ino
             
         except Exception as e:
             raise LogMonitorError(f"Cannot open file {self.file_path}: {e}")
@@ -248,7 +249,7 @@ class LogFileWatcher:
             
             # Reinitialize if new file exists
             if os.path.exists(self.file_path):
-                self._open_file()
+                self._open_file(from_start=True)
                 self._line_number = 0  # Reset line counter
                 self.logger.info(f"Reopened rotated file: {self.file_path}")
             else:
@@ -279,8 +280,13 @@ class LogFileWatcher:
             max_lines_per_check = 1000  # Prevent resource exhaustion
             
             while lines_read < max_lines_per_check:
+                position = self._file_handle.tell()
                 line = self._file_handle.readline()
                 if not line:  # No more data
+                    break
+                if not line.endswith('\n'):
+                    # An append may stop in the middle of a record. Retry when complete.
+                    self._file_handle.seek(position)
                     break
                 
                 # Remove trailing newline
@@ -656,7 +662,7 @@ class LogMonitor:
             
             # Shutdown thread pool
             if self._thread_pool:
-                self._thread_pool.shutdown(wait=True, timeout=5)
+                self._thread_pool.shutdown(wait=True)
                 self._thread_pool = None
             
             # Clear pattern matcher

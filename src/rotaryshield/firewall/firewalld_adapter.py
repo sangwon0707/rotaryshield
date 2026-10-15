@@ -198,7 +198,7 @@ class FirewalldAdapter(FirewallAdapter):
                 "--add-rich-rule", rich_rule
             ])
             
-            permanent_success = (return_code == 0)
+            permanent_success = (return_code == 0 or "already_enabled" in stderr.lower() or "already enabled" in stderr.lower())
             if not permanent_success and "already enabled" not in stderr.lower():
                 self.logger.error(f"Failed to add permanent firewalld rule: {stderr}")
             
@@ -208,21 +208,23 @@ class FirewalldAdapter(FirewallAdapter):
                 "--add-rich-rule", rich_rule
             ])
             
-            runtime_success = (return_code == 0)
+            runtime_success = (return_code == 0 or "already_enabled" in stderr.lower() or "already enabled" in stderr.lower())
             if not runtime_success and "already enabled" not in stderr.lower():
                 self.logger.error(f"Failed to add runtime firewalld rule: {stderr}")
             
-            # Consider successful if either permanent or runtime succeeded
-            success = permanent_success or runtime_success
-            
-            if success or "already enabled" in stderr.lower():
+            # A permanent-only rule is not enforcing; a runtime-only rule is not persistent.
+            success = permanent_success and runtime_success
+
+            if success:
                 # Update cache
                 self._rule_cache[normalized_ip] = True
                 self.logger.debug(f"Firewalld rule added for IP: {normalized_ip}")
                 return True
             else:
+                if not self.unblock_ip(normalized_ip):
+                    self.logger.critical("Could not undo partial firewalld block for %s", normalized_ip)
                 return False
-            
+
         except ipaddress.AddressValueError:
             raise FirewallError(f"Invalid IP address format: {ip_address}")
         except Exception as e:
@@ -257,7 +259,7 @@ class FirewalldAdapter(FirewallAdapter):
                 "--remove-rich-rule", rich_rule
             ])
             
-            permanent_success = (return_code == 0)
+            permanent_success = (return_code == 0 or "not_enabled" in stderr.lower() or "not enabled" in stderr.lower())
             if not permanent_success and "not enabled" not in stderr.lower():
                 self.logger.debug(f"Permanent rule removal result: {stderr}")
             
@@ -267,13 +269,12 @@ class FirewalldAdapter(FirewallAdapter):
                 "--remove-rich-rule", rich_rule
             ])
             
-            runtime_success = (return_code == 0)
+            runtime_success = (return_code == 0 or "not_enabled" in stderr.lower() or "not enabled" in stderr.lower())
             if not runtime_success and "not enabled" not in stderr.lower():
                 self.logger.debug(f"Runtime rule removal result: {stderr}")
             
-            # Consider successful if either removal succeeded or rule wasn't found
-            success = (permanent_success or runtime_success or 
-                      "not enabled" in stderr.lower())
+            # Both stores must be clear before declaring the ban removed.
+            success = permanent_success and runtime_success
             
             if success:
                 # Update cache

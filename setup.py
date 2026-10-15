@@ -17,7 +17,7 @@ if sys.version_info < (3, 8):
 HERE = Path(__file__).parent.resolve()
 
 # Read the README file
-README_PATH = HERE / "README.md"
+README_PATH = HERE / "Readme.md"
 if README_PATH.exists():
     with open(README_PATH, encoding="utf-8") as f:
         long_description = f.read()
@@ -30,7 +30,7 @@ requirements = []
 if REQUIREMENTS_PATH.exists():
     with open(REQUIREMENTS_PATH, encoding="utf-8") as f:
         requirements = [
-            line.strip() for line in f 
+            line.split("#", 1)[0].strip() for line in f
             if line.strip() and not line.startswith('#') and not line.startswith('-r')
         ]
 
@@ -100,10 +100,10 @@ setup(
             "rotaryshield-status=rotaryshield.cli:status_main",
             "rotaryshield-control=rotaryshield.cli:control_main",
             # Phase 2 CLI Tools - Complete Suite
-            "rotaryshield-monitor=rotaryshield.cli.monitor:main",
-            "rotaryshield-list-blocked=rotaryshield.cli.list_blocked:main",
-            "rotaryshield-unblock=rotaryshield.cli.unblock:main",
-            "rotaryshield-stats=rotaryshield.cli.stats:main",
+            "rotaryshield-monitor=rotaryshield.cli:monitor_main",
+            "rotaryshield-list-blocked=rotaryshield.cli:list_blocked_main",
+            "rotaryshield-unblock=rotaryshield.cli:unblock_main",
+            "rotaryshield-stats=rotaryshield.cli:stats_main",
             "rotaryshield-dashboard=rotaryshield.cli.dashboard:main",
         ],
     },
