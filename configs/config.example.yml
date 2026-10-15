@@ -1,7 +1,7 @@
 # Copy to /etc/rotaryshield/config.yml with permissions 0640 (root:rotaryshield).
 # Keep only log files that exist and are readable by the service account.
 detection:
-  max_retry: 5       # Warn on repeated failures; blocking starts at ban_threshold.
+  max_retry: 5       # Warn on repeated failures; pump admission is independent.
   ban_threshold: 10 # Ban on the tenth matching event within the time window.
   time_window: 600
   log_files:
@@ -24,14 +24,37 @@ ban:
     # Add your own administration IP/CIDR before enabling blocking.
     # - '192.0.2.0/24'
 
-# Legacy throttling fields are retained for configuration compatibility.
-# SSH delays and HTTP request limits are not implemented.
+# Legacy throttling fields remain compatibility-only. Configure pump below for
+# actual TCP SYN admission control; HTTP request limits/SSH delays are separate.
 throttling:
   ssh_delay: 1.0
   http_rate_limit: 10
   http_rate_window: 60
   max_connections: 100
   enable_captcha: false
+
+# Rotary pump model: bounded admission -> pressure feedback -> relief -> recovery.
+# Observe records proposals only. Enforce uses nftables on Linux and requires
+# CAP_NET_ADMIN, an installed nft binary, and /run/rotaryshield writable by the daemon.
+# Set rates for YOUR measured service capacity before switching to enforce.
+pump:
+  mode: observe              # off | observe | enforce
+  sample_interval: 2
+  low_pressure: 0.50         # CPU, used memory, and detector queue fractions
+  high_pressure: 0.75
+  relief_pressure: 0.95
+  smoothing_seconds: 5
+  recovery_seconds: 30       # continuous low pressure for EACH recovery step
+  source_timeout: 60
+  max_sources: 4096          # bounded per-service/per-family source state
+  services:
+    - name: ssh
+      port: 22              # host INPUT traffic; not Docker-forwarded ports
+      rate: 20              # nominal shared IPv4+IPv6 SYN packets/second
+      minimum_rate: 2        # relief; regulated is max(minimum_rate, rate/2)
+      burst: 10             # per-stage global token bucket size
+      per_source_rate: 2
+      per_source_burst: 4
 
 database:
   db_path: /var/lib/rotaryshield/rotaryshield.db

@@ -96,6 +96,7 @@ setup(
     entry_points={
         "console_scripts": [
             "rotaryshield=rotaryshield.main:main",
+            "rotaryshield-pump=rotaryshield.pump.__main__:main",
             "rotaryshield-config=rotaryshield.cli:config_main",
             "rotaryshield-status=rotaryshield.cli:status_main",
             "rotaryshield-control=rotaryshield.cli:control_main",

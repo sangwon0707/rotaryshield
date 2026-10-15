@@ -38,6 +38,7 @@ from ..config import ConfigManager, RotaryShieldConfig
 from ..monitoring import LogMonitor, LogEvent
 from ..firewall import FirewallManager, FirewallAdapter
 from ..database import IPManager, DatabaseManager
+from ..pump.runtime import HostPressureSensor, PumpRuntime
 
 
 class SecurityEngineError(Exception):
@@ -124,6 +125,8 @@ class SecurityEngine:
         
         # Performance monitoring
         self._performance_monitor_thread: Optional[threading.Thread] = None
+        self._pump_thread: Optional[threading.Thread] = None
+        self.pump = None
         
         # Logging setup
         self.logger = logging.getLogger(__name__)
@@ -226,6 +229,12 @@ class SecurityEngine:
                 # Load existing banned IPs from database
                 self._load_existing_bans()
 
+                # Admission feedback is independent of IP attribution and log
+                # thresholds. It only operates on explicitly configured ports.
+                self.pump = PumpRuntime(self.config, self.database_manager,
+                                        HostPressureSensor(self.event_queue))
+                self.pump.initialize()
+
                 self._is_initialized = True
                 self.logger.info("SecurityEngine initialization completed successfully")
                 
@@ -269,6 +278,7 @@ class SecurityEngine:
                 
                 # Start performance monitoring
                 self._start_performance_monitor()
+                self._start_pump_monitor()
                 
                 # Start log monitoring
                 self.log_monitor.start()
@@ -286,6 +296,24 @@ class SecurityEngine:
                 self.shutdown()
                 raise SecurityEngineError(f"Start failed: {e}")
     
+    def _start_pump_monitor(self):
+        if self.config.pump.mode == 'off':
+            return
+
+        def monitor_pressure():
+            while not self._shutdown_event.is_set():
+                try:
+                    self.pump.tick()
+                except Exception:
+                    # A failed sensor/status write must not count as a healthy
+                    # recovery window. The last kernel limits stay installed.
+                    self.pump.controller.sensor_failed()
+                    self.logger.exception('Pump feedback/status update failed')
+                self._shutdown_event.wait(self.config.pump.sample_interval)
+
+        self._pump_thread = threading.Thread(target=monitor_pressure, name='rotaryshield-pump', daemon=True)
+        self._pump_thread.start()
+
     def _start_performance_monitor(self) -> None:
         """Start performance monitoring thread."""
         def monitor_performance():
@@ -605,7 +633,7 @@ class SecurityEngine:
         count = len(self._active_threats.get(event.source_ip, []))
         if count >= self.config.detection.max_retry and event.source_ip not in self._throttled_ips:
             self._throttled_ips[event.source_ip] = time.time()
-            self.logger.warning("Repeated failures from %s; observing until ban threshold (throttling is unavailable)",
+            self.logger.warning("Repeated failures from %s; observing until ban threshold (pump admission is configured separately)",
                                 event.source_ip)
         return []
 
@@ -748,6 +776,8 @@ class SecurityEngine:
                 thread.join()
         if self._performance_monitor_thread and self._performance_monitor_thread is not threading.current_thread():
             self._performance_monitor_thread.join()
+        if self._pump_thread and self._pump_thread is not threading.current_thread():
+            self._pump_thread.join()
         self._cleanup_components()
         with self._state_lock:
             self._is_running = False
@@ -755,6 +785,12 @@ class SecurityEngine:
         self.logger.info("SecurityEngine shutdown completed")
 
     def _cleanup_components(self) -> None:
+        if self.pump:
+            try:
+                self.pump.cleanup()
+            except Exception:
+                self.logger.exception('Pump cleanup failed; owned rules may remain installed')
+            self.pump = None
         for component in (self.log_monitor, self.ip_manager, self.firewall_manager):
             if component:
                 try:

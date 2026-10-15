@@ -16,9 +16,10 @@ import stat
 import yaml
 import logging
 import hashlib
+import math
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 import re
 
 
@@ -237,6 +238,73 @@ class NotificationConfig:
 
 
 @dataclass
+class PumpServiceConfig:
+    name: str = 'ssh'
+    port: int = 22
+    rate: int = 20             # SYN packets/second, shared by IPv4 and IPv6
+    minimum_rate: int = 2
+    burst: int = 10
+    per_source_rate: int = 2
+    per_source_burst: int = 4
+
+    def validate(self):
+        if not isinstance(self.name, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,23}', self.name):
+            raise ConfigurationError('pump service name must use lowercase letters, digits or underscores')
+        for name, maximum in (('port', 65535), ('rate', 1000000), ('minimum_rate', 1000000),
+                              ('burst', 1000000), ('per_source_rate', 1000000), ('per_source_burst', 1000000)):
+            value = getattr(self, name)
+            if type(value) is not int or not 1 <= value <= maximum:
+                raise ConfigurationError('Invalid pump service ' + name)
+        if self.minimum_rate > self.rate or self.per_source_rate > self.rate:
+            raise ConfigurationError('pump minimum_rate and per_source_rate must not exceed rate')
+
+
+@dataclass
+class PumpConfig:
+    mode: str = 'off'          # off / observe / enforce (nftables)
+    sample_interval: float = 2.0
+    low_pressure: float = 0.50
+    high_pressure: float = 0.75
+    relief_pressure: float = 0.95
+    smoothing_seconds: float = 5.0
+    recovery_seconds: float = 30.0
+    source_timeout: int = 60
+    max_sources: int = 4096    # per service and address family
+    services: List[PumpServiceConfig] = field(default_factory=list)
+
+    def validate(self):
+        if self.mode not in ('off', 'observe', 'enforce'):
+            raise ConfigurationError('pump.mode must be off, observe or enforce')
+        for name, lower, upper in (('sample_interval', 0.5, 60), ('smoothing_seconds', 0.5, 300),
+                                   ('recovery_seconds', 1, 3600), ('low_pressure', 0, 1),
+                                   ('high_pressure', 0, 1), ('relief_pressure', 0, 1)):
+            value = getattr(self, name)
+            if type(value) not in (int, float) or not math.isfinite(value) or not lower <= value <= upper:
+                raise ConfigurationError('Invalid pump.' + name)
+        if not self.low_pressure < self.high_pressure < self.relief_pressure:
+            raise ConfigurationError('pump pressure thresholds must be low < high < relief')
+        if self.recovery_seconds < 2 * self.sample_interval:
+            raise ConfigurationError('pump recovery_seconds must cover at least two sample intervals')
+        for name, lower, upper in (('source_timeout', 1, 3600), ('max_sources', 16, 65536)):
+            value = getattr(self, name)
+            if type(value) is not int or not lower <= value <= upper:
+                raise ConfigurationError('Invalid pump.' + name)
+        if not isinstance(self.services, list) or len(self.services) > 32:
+            raise ConfigurationError('pump.services must be a list of at most 32 services')
+        if self.mode != 'off' and not self.services:
+            raise ConfigurationError('Enabled pump requires explicitly configured services')
+        for service in self.services:
+            if not isinstance(service, PumpServiceConfig):
+                raise ConfigurationError('Invalid pump service')
+            service.validate()
+            # An expired source bucket must not refill faster than a live one.
+            if self.source_timeout < service.per_source_burst / service.per_source_rate:
+                raise ConfigurationError('pump.source_timeout must cover a source bucket refill')
+        if len({s.port for s in self.services}) != len(self.services) or len({s.name for s in self.services}) != len(self.services):
+            raise ConfigurationError('pump service names and ports must be unique')
+
+
+@dataclass
 class RotaryShieldConfig:
     """Main RotaryShield configuration."""
     detection: DetectionConfig = field(default_factory=DetectionConfig)
@@ -244,6 +312,7 @@ class RotaryShieldConfig:
     ban: BanConfig = field(default_factory=BanConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     notification: NotificationConfig = field(default_factory=NotificationConfig)
+    pump: PumpConfig = field(default_factory=PumpConfig)
     
     # Global settings
     log_level: str = 'INFO'
@@ -261,6 +330,7 @@ class RotaryShieldConfig:
         self.ban.validate()
         self.database.validate()
         self.notification.validate()
+        self.pump.validate()
         
         # Validate global settings
         if self.log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
@@ -353,6 +423,19 @@ class ConfigManager:
     def _build_config(self, config_data: Dict[str, Any]) -> RotaryShieldConfig:
         """Build configuration object from dictionary data."""
         config = RotaryShieldConfig()
+
+        if 'pump' in config_data:
+            pump_data = config_data['pump']
+            if not isinstance(pump_data, dict):
+                raise ConfigurationError('pump must be a mapping')
+            pump_data = dict(pump_data)
+            services = pump_data.pop('services', [])
+            if not isinstance(services, list) or not all(isinstance(item, dict) for item in services):
+                raise ConfigurationError('pump.services must be a list of mappings')
+            try:
+                config.pump = PumpConfig(services=[PumpServiceConfig(**item) for item in services], **pump_data)
+            except TypeError as error:
+                raise ConfigurationError('Unknown or invalid pump option: ' + str(error)) from error
 
         # Detection configuration
         if 'detection' in config_data:
@@ -455,6 +538,7 @@ class ConfigManager:
     def _config_to_dict(self, config: RotaryShieldConfig) -> Dict[str, Any]:
         """Convert configuration object to dictionary."""
         return {
+            'pump': asdict(config.pump),
             'detection': {
                 'max_retry': config.detection.max_retry,
                 'ban_threshold': config.detection.ban_threshold,
